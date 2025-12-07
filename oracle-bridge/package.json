@@ -1,0 +1,19 @@
+{
+  "name": "oracle-bridge",
+  "version": "1.0.0",
+  "type": "commonjs",
+  "scripts": {
+    "sync": "ts-node src/syncGthAssy.ts"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "mssql": "^12.2.0",
+    "oracledb": "^6.10.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "@types/oracledb": "^6.10.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}
