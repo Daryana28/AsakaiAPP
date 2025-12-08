@@ -1,6 +1,10 @@
-// asakai-dashboard/app/api/dashboard/route.ts
 import { NextResponse } from "next/server";
-import { getSqlPool } from "@/lib/mssql";
+// Pastikan path import ini sesuai dengan file koneksi database Anda
+// Jika menggunakan file 'lib/db.ts' yang saya buat sebelumnya, sesuaikan import-nya.
+// Disini saya biarkan sesuai snippet Anda (menggunakan lib/mssql).
+import { getSqlPool } from "@/lib/mssql"; 
+
+export const dynamic = "force-dynamic"; // Tambahkan ini agar tidak di-cache oleh Next.js
 
 export async function GET(request: Request) {
   try {
@@ -20,8 +24,9 @@ export async function GET(request: Request) {
     const result = await pool.request().input("tgl", tgl).query(`
         SELECT
           dept,
-          SUM(qty_seihan) AS target_qty,
-          SUM(qty_aktual) AS actual_qty
+          -- Sesuaikan alias kolom agar sama dengan tipe data di Frontend (DashboardRow)
+          SUM(qty_seihan) AS qty_seihan, 
+          SUM(qty_aktual) AS qty_aktual
         FROM dbo.t_gth_assy
         WHERE tgl = @tgl
         GROUP BY dept
@@ -29,7 +34,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json(result.recordset);
   } catch (err: any) {
-    console.error(err);
+    console.error("API Error:", err);
     return NextResponse.json(
       { error: err.message || "DB error" },
       { status: 500 }
