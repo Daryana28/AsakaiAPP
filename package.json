@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "sync:hht": "node -r dotenv/config ./oracle-bridge/src/sync-101.js"
+    "sync:hht": "node -r dotenv/config ./oracle-bridge/src/sync_prodresult.js"
   },
   "dependencies": {
     "chart.js": "^4.5.1",

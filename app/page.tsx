@@ -9,17 +9,23 @@ const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 type DashboardRow = {
   dept: string;
-  qty_seihan: number;
-  qty_aktual: number;
+  qty_seihan: number; // target
+  qty_aktual: number; // actual
+};
+
+type DashboardResponse = {
+  shift: number;
+  baseYmd: string;
+  rows: DashboardRow[];
 };
 
 type IssueRow = {
   id: number;
   dept: string;
   file_name: string;
-  file_path: string | null; // URL file utama (pdf/xlsx/dll)
+  file_path: string | null;
   cover_name: string | null;
-  cover_path: string | null; // URL gambar cover (kalau ada)
+  cover_path: string | null;
   uploadedAt?: string;
 };
 
@@ -142,14 +148,13 @@ function DeptCard({
   color: GaugeColor;
   href: string;
 }) {
-  // percent langsung dari qty_aktual (nanti dibatasi 0–100 di HalfGauge)
-  const percent = actual;
-  const gap: number | null = null;
+  const percent = target > 0 ? (actual / target) * 100 : 0;
+  const gap = target || actual ? target - actual : null;
 
   return (
     <Link href={href} className="block group cursor-pointer h-full">
       <div className="bg-white/95 border border-slate-200 rounded-3xl px-6 py-5 flex flex-col gap-4 shadow-[0_18px_40px_rgba(15,23,42,0.06)] h-full transition-transform duration-300 ease-in-out group-hover:scale-[1.02] group-hover:shadow-lg">
-        <div className="flex items-center justify-center">
+        <div className="flex items-center justify-between mb-1">
           <h3 className="text-lg font-bold text-gray-800 group-hover:text-blue-600 transition-colors">
             {dept}
           </h3>
@@ -176,8 +181,9 @@ function DeptCard({
           </div>
           <div>
             <div className="font-semibold">GAP (Pcs)</div>
-            {/* GAP dikosongkan dulu */}
-            <div className="font-medium tracking-tight text-gray-400">-</div>
+            <div className="font-medium tracking-tight">
+              {gap == null ? "-" : formatNumber(gap)}
+            </div>
           </div>
         </div>
       </div>
@@ -189,7 +195,7 @@ function DeptCard({
 export default function Page() {
   const { mutate } = useSWRConfig();
 
-  const { data, isLoading, error } = useSWR<DashboardRow[]>(
+  const { data, isLoading, error } = useSWR<DashboardResponse>(
     "/api/dashboard",
     fetcher,
     { refreshInterval: 5000 }
@@ -216,21 +222,20 @@ export default function Page() {
   };
 
   const orderedDepts = ["INJECTION", "ST", "ASSY"];
-  const safeData = Array.isArray(data) ? data : [];
+  const safeRows = Array.isArray(data?.rows) ? data!.rows : [];
 
   const rows = orderedDepts.map((deptName) => {
-    const foundData = safeData.find((r) => r.dept === deptName);
-    if (foundData) return foundData;
+    const found = safeRows.find((r) => r.dept === deptName);
+    if (found) return found;
     return { dept: deptName, qty_seihan: 0, qty_aktual: 0 };
   });
 
-  // URL file utama (untuk buka & unduh)
-  const getFileUrl = (f: IssueRow) => {
-    // diasumsikan file_path sudah berupa URL / path valid dari API /upload
-    return f.file_path || f.cover_path || "";
-  };
+  const shiftLabel =
+    data?.shift === 1 ? "Shift 1 (08:00 - 20:00)" : "Shift 2 (20:00 - 08:00)";
 
-  // handler open → buka tab baru
+  // ==== bagian Issue tetap seperti versi kamu ====
+  const getFileUrl = (f: IssueRow) => f.file_path || f.cover_path || "";
+
   const openIssue = (f: IssueRow) => {
     const url = getFileUrl(f);
     if (!url) {
@@ -240,7 +245,6 @@ export default function Page() {
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  // handler delete
   const handleDelete = async (id: number) => {
     const ok = window.confirm("Yakin hapus issue ini?");
     if (!ok) return;
@@ -279,6 +283,12 @@ export default function Page() {
 
       {!isLoading && (
         <>
+          {/* Info Shift aktif */}
+          <div className="mt-2 text-sm text-slate-600">
+            <span className="font-semibold">Current:</span> {shiftLabel} | Base
+            date D_YMD: <span className="font-mono">{data?.baseYmd}</span>
+          </div>
+
           {/* ===== GAUGE DEPT ===== */}
           <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-5">
             {rows.map((row) => (
