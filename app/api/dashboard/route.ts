@@ -1,43 +1,49 @@
+// app/api/dashboard/route.ts
 import { NextResponse } from "next/server";
-// Pastikan path import ini sesuai dengan file koneksi database Anda
-// Jika menggunakan file 'lib/db.ts' yang saya buat sebelumnya, sesuaikan import-nya.
-// Disini saya biarkan sesuai snippet Anda (menggunakan lib/mssql).
-import { getSqlPool } from "@/lib/mssql"; 
+import sql from "mssql";
 
-export const dynamic = "force-dynamic"; // Tambahkan ini agar tidak di-cache oleh Next.js
+const sqlServerConfig: sql.config = {
+  user: process.env.SQLSERVER_USER || "appAsakai",
+  password: process.env.SQLSERVER_PASSWORD || "W3d4ng4ns0l0",
+  server: process.env.SQLSERVER_SERVER || "172.17.100.9",
+  database: process.env.SQLSERVER_DB || "Asakai",
+  options: {
+    encrypt: false,
+    trustServerCertificate: true,
+  },
+};
 
-export async function GET(request: Request) {
+// Mapping dept dari 2 digit awal I_IND_DEST_CD
+const DEPT_CASE = `
+  CASE
+    WHEN LEFT(I_IND_DEST_CD, 2) IN ('12','16','22') THEN 'INJECTION'
+    WHEN LEFT(I_IND_DEST_CD, 2) IN ('13','14','15','23','24','25') THEN 'ST'
+    WHEN LEFT(I_IND_DEST_CD, 2) IN ('11','21')      THEN 'ASSY'
+    ELSE NULL
+  END
+`;
+
+export async function GET() {
   try {
-    const url = new URL(request.url);
-    const tglParam = url.searchParams.get("tgl");
+    const pool = await sql.connect(sqlServerConfig);
 
-    const now = new Date();
-    const today =
-      now.getFullYear().toString() +
-      String(now.getMonth() + 1).padStart(2, "0") +
-      String(now.getDate()).padStart(2, "0");
+    const result = await pool.request().query(`
+      SELECT
+        ${DEPT_CASE} AS dept,
+        0 AS qty_seihan,                     -- target (sementara 0 dulu)
+        SUM(I_ACP_QTY) AS qty_aktual         -- Production Result = SUM I_ACP_QTY
+      FROM dbo.HHT_GATHERING_INF_MIRROR
+      WHERE I_ACP_DATE >= '2025-12-10'
+        AND I_ACP_DATE <  '2025-12-11'
+        AND ${DEPT_CASE} IS NOT NULL
+      GROUP BY ${DEPT_CASE}
+    `);
 
-    const tgl = tglParam || today;
+    await pool.close();
 
-    const pool = await getSqlPool();
-
-    const result = await pool.request().input("tgl", tgl).query(`
-        SELECT
-          dept,
-          -- Sesuaikan alias kolom agar sama dengan tipe data di Frontend (DashboardRow)
-          SUM(qty_seihan) AS qty_seihan, 
-          SUM(qty_aktual) AS qty_aktual
-        FROM dbo.t_gth_assy
-        WHERE tgl = @tgl
-        GROUP BY dept
-      `);
-
-    return NextResponse.json(result.recordset);
-  } catch (err: any) {
-    console.error("API Error:", err);
-    return NextResponse.json(
-      { error: err.message || "DB error" },
-      { status: 500 }
-    );
+    return NextResponse.json(result.recordset ?? []);
+  } catch (err) {
+    console.error("ERROR /api/dashboard:", err);
+    return NextResponse.json({ error: "db-error" }, { status: 500 });
   }
 }

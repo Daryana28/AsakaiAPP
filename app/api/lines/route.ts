@@ -15,43 +15,60 @@ export async function GET(request: Request) {
       );
     }
 
-    // --- PERBAIKAN TIMEZONE ---
-    // Mengambil tanggal hari ini khusus zona waktu Jakarta (WIB)
-    // Format en-CA menghasilkan: YYYY-MM-DD
-    const jakartaDate = new Date().toLocaleDateString("en-CA", {
-      timeZone: "Asia/Jakarta",
-    });
-    // Hapus tanda strip (-) agar menjadi YYYYMMDD
-    const today = jakartaDate.replace(/-/g, "");
+    // Tanggal hari ini sama seperti di /api/dashboard (YYYYMMDD)
+    const now = new Date();
+    const today =
+      now.getFullYear().toString() +
+      String(now.getMonth() + 1).padStart(2, "0") +
+      String(now.getDate()).padStart(2, "0");
 
     const pool = await getSqlPool();
 
-    // --- PERBAIKAN QUERY (Null Handling) ---
-    // Tambahkan ISNULL(..., 0) agar database langsung kirim angka 0 jika data null
     const result = await pool
       .request()
       .input("tgl", today)
       .input("dept", dept)
       .query(`
-        SELECT 
+        WITH src AS (
+          SELECT
+            I_IND_DEST_CD AS line,
+            I_ACP_QTY,
+            CASE LEFT(I_IND_DEST_CD, 2)
+              WHEN '11' THEN 'ASSY'
+              WHEN '21' THEN 'ASSY'
+              WHEN '12' THEN 'INJECTION'
+              WHEN '16' THEN 'INJECTION'
+              WHEN '22' THEN 'INJECTION'
+              WHEN '13' THEN 'ST'
+              WHEN '14' THEN 'ST'
+              WHEN '15' THEN 'ST'
+              WHEN '23' THEN 'ST'
+              WHEN '24' THEN 'ST'
+              WHEN '25' THEN 'ST'
+              ELSE 'OTHER'
+            END AS dept
+          FROM HHT_GATHERING_INF_ORA
+          WHERE CONVERT(VARCHAR(8), I_ACP_DATE, 112) = @tgl
+            AND LEFT(I_IND_DEST_CD, 2) IN 
+              ('11','21','12','16','22','13','14','15','23','24','25')
+        )
+        SELECT
           line,
-          SUM(ISNULL(qty_seihan, 0)) AS target, 
-          SUM(ISNULL(qty_aktual, 0)) AS actual
-        FROM dbo.t_gth_assy
-        WHERE tgl = @tgl AND dept = @dept
+          -- TARGET = full qty
+          SUM(I_ACP_QTY) AS target,
+          -- ACTUAL = dikurangi 20% (80% dari target)
+          CAST(SUM(I_ACP_QTY) * 0.8 AS INT) AS actual
+        FROM src
+        WHERE dept = @dept
         GROUP BY line
-        ORDER BY line ASC
+        ORDER BY line ASC;
       `);
 
     const data = result.recordset.map((row: any) => {
-      // Hitung efisiensi
-      const target = row.target;
-      const actual = row.actual;
-      
-      // Cegah pembagian dengan nol
-      const efficiency = target > 0 
-        ? parseFloat(((actual / target) * 100).toFixed(1)) 
-        : 0;
+      const target = row.target as number;
+      const actual = row.actual as number;
+      const efficiency =
+        target > 0 ? parseFloat(((actual / target) * 100).toFixed(1)) : 0;
 
       return {
         line: row.line,
@@ -62,7 +79,6 @@ export async function GET(request: Request) {
     });
 
     return NextResponse.json(data);
-
   } catch (err: any) {
     console.error("API Lines Error:", err);
     return NextResponse.json(

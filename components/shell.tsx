@@ -37,7 +37,7 @@ const GENERAL = [{ href: "/logout", label: "Logout", icon: "logout" as const }];
  *  --------------------------*/
 function Icon({ name, active = false }: { name: string; active?: boolean }) {
   const stroke = active ? GREEN.base : "#7B8D87";
-  const fill = active ? GREEN.base : "none"; // (belum dipakai, gapapa)
+  const fill = active ? GREEN.base : "none";
 
   switch (name) {
     case "grid":
@@ -180,7 +180,7 @@ function Icon({ name, active = false }: { name: string; active?: boolean }) {
   }
 }
 
-/** Realtime clock di kanan topbar */
+/** clock */
 function Clock() {
   const [now, setNow] = useState("");
 
@@ -258,6 +258,22 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
   const ringStyle = { boxShadow: `0 0 0 1px ${GREEN.ring} inset` };
 
+  // kelas untuk sidebar (supaya toggle berfungsi di semua screen)
+  const asideClass =
+    [
+      "fixed top-14 left-0 bottom-0 z-30 bg-[#F9FBFA] border-r border-[#E5ECE8]",
+      "transition-transform duration-300 ease-in-out transform",
+      open ? "translate-x-0" : "-translate-x-full",
+      "w-64 sm:w-72",
+    ].join(" ");
+
+  // kelas untuk main (padding kiri tergantung open/close di desktop)
+  const mainClass =
+    [
+      "pt-14 transition-all duration-300",
+      open ? "sm:pl-72" : "sm:pl-0",
+    ].join(" ");
+
   return (
     <div className="min-h-screen bg-[#F5F7F6] text-neutral-900">
       {/* Topbar */}
@@ -299,18 +315,8 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       </header>
 
       {/* Sidebar */}
-      <aside
-        className={[
-          "fixed top-14 left-0 bottom-0 z-30 bg-[#F9FBFA] border-r border-[#E5ECE8] transition-all duration-300 ease-in-out",
-          open ? "w-72" : "w-0 sm:w-0",
-        ].join(" ")}
-        aria-hidden={!open}
-      >
-        <div
-          className={`h-full overflow-hidden ${
-            open ? "opacity-100" : "opacity-0"
-          } transition-opacity duration-200`}
-        >
+      <aside className={asideClass} aria-hidden={!open}>
+        <div className="h-full overflow-hidden">
           <div className="px-4 pt-5 pb-4 text-[11px] tracking-wider font-semibold text-[#8AA197]">
             MENU
           </div>
@@ -365,7 +371,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
 
-      {/* Mobile overlay */}
+      {/* Mobile overlay (hanya di bawah sm) */}
       {open && (
         <div
           className="fixed inset-0 top-14 bg-black/20 backdrop-blur-[1px] z-20 sm:hidden"
@@ -374,12 +380,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       )}
 
       {/* Content */}
-      <main
-        className={[
-          "pt-14 transition-all duration-300",
-          open ? "sm:pl-72" : "pl-0",
-        ].join(" ")}
-      >
+      <main className={mainClass}>
         <div className="p-4 sm:p-6">{children}</div>
       </main>
     </div>
