@@ -22,12 +22,12 @@ const MENU = [
     icon: "calendar" as const,
     badge: "",
   },
-  {
-    href: "/abnormal/list",
-    label: "Abnormal Issue",
-    icon: "alert" as const,
-    badge: "",
-  },
+  // {
+  //   href: "/abnormal/list",
+  //   label: "Abnormal Issue",
+  //   icon: "alert" as const,
+  //   badge: "",
+  // },
 ];
 
 const GENERAL = [{ href: "/logout", label: "Logout", icon: "logout" as const }];
@@ -258,22 +258,6 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
   const ringStyle = { boxShadow: `0 0 0 1px ${GREEN.ring} inset` };
 
-  // kelas untuk sidebar (supaya toggle berfungsi di semua screen)
-  const asideClass =
-    [
-      "fixed top-14 left-0 bottom-0 z-30 bg-[#F9FBFA] border-r border-[#E5ECE8]",
-      "transition-transform duration-300 ease-in-out transform",
-      open ? "translate-x-0" : "-translate-x-full",
-      "w-64 sm:w-72",
-    ].join(" ");
-
-  // kelas untuk main (padding kiri tergantung open/close di desktop)
-  const mainClass =
-    [
-      "pt-14 transition-all duration-300",
-      open ? "sm:pl-72" : "sm:pl-0",
-    ].join(" ");
-
   return (
     <div className="min-h-screen bg-[#F5F7F6] text-neutral-900">
       {/* Topbar */}
@@ -315,7 +299,15 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       </header>
 
       {/* Sidebar */}
-      <aside className={asideClass} aria-hidden={!open}>
+      <aside
+        className={[
+          "fixed top-14 left-0 bottom-0 z-30 bg-[#F9FBFA] border-r border-[#E5ECE8]",
+          "transition-transform duration-300 ease-in-out transform",
+          open ? "translate-x-0" : "-translate-x-full",
+          "w-64 sm:w-72 sm:translate-x-0", // desktop selalu terlihat
+        ].join(" ")}
+        aria-hidden={!open}
+      >
         <div className="h-full overflow-hidden">
           <div className="px-4 pt-5 pb-4 text-[11px] tracking-wider font-semibold text-[#8AA197]">
             MENU
@@ -380,7 +372,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       )}
 
       {/* Content */}
-      <main className={mainClass}>
+      <main className="pt-14 transition-all duration-300 sm:pl-72">
         <div className="p-4 sm:p-6">{children}</div>
       </main>
     </div>

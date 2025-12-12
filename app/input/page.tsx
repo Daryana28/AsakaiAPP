@@ -16,13 +16,34 @@ const GREEN = {
   dim: "#6B7280",
 };
 
-type Dept = "Assembly" | "Surface Treatment" | "Injection" | "PPC" | "LOGISTIC";
+type Dept =
+  | "HSE"
+  | "PPC"
+  | "QUALITY CUSTOMER"
+  | "LOGISTIC"
+  | "MOLD MAINTANANCE"
+  | "MACHINE MAINTENANCE"
+  | "ASSY MAINTANANCE"
+  | "PRODUCTION ENGINERING"
+  | "INJECTION"
+  | "SURFACE TREATMENT"
+  | "ASSEMBLY"
+  | "QUALITY"
+  | "PURCHASING";
 const DEPTS: { value: Dept; label: string }[] = [
-  { value: "Assembly", label: "Assembly" },
-  { value: "Surface Treatment", label: "Surface Treatment" },
-  { value: "Injection", label: "Injection" },
+  { value: "HSE", label: "HSE" },
   { value: "PPC", label: "PPC" },
+  { value: "QUALITY CUSTOMER", label: "Quality Customer" },
   { value: "LOGISTIC", label: "Logistic" },
+  { value: "MOLD MAINTANANCE", label: "Mold Maintenance" },
+  { value: "MACHINE MAINTENANCE", label: "Machine Maintenance" },
+  { value: "ASSY MAINTANANCE", label: "Assy Maintenance" },
+  { value: "PRODUCTION ENGINERING", label: "Production Enginering" },
+  { value: "INJECTION", label: "Injection" },
+  { value: "SURFACE TREATMENT", label: "Surface Treatment" },
+  { value: "ASSEMBLY", label: "Assembly" },
+  { value: "QUALITY", label: "Quality" },
+  { value: "PURCHASING", label: "Purchasing" },
 ];
 
 export default function InputAsakai() {
@@ -301,73 +322,21 @@ export default function InputAsakai() {
             </div>
           ) : null}
 
-          {/* Preview gambar / excel */}
-          {(imgPreview || isExcel) && (
+          {/* Preview gambar saja (tanpa kartu Safety/BNF/RIL/Delivery & JSON) */}
+          {imgPreview && (
             <div className="grid grid-cols-1 gap-5">
-              {imgPreview && (
-                <div
-                  className="rounded-xl overflow-hidden"
-                  style={{
-                    border: `1px solid ${GREEN.border}`,
-                    background: "#FFF",
-                  }}
-                >
-                  <img
-                    src={imgPreview}
-                    className="w-full max-h-[360px] object-contain sm:object-cover"
-                  />
-                </div>
-              )}
-
-              {isExcel && (
-                <div
-                  className="rounded-2xl p-4 sm:p-5 space-y-4"
-                  style={{
-                    border: `1px solid ${GREEN.border}`,
-                    background: "#FFFFFF",
-                  }}
-                >
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    {(["Safety", "BNF", "RIL", "Delivery"] as const).map((k) => (
-                      <div
-                        key={k}
-                        className="rounded-xl p-3"
-                        style={{
-                          background: "#F8FBF9",
-                          boxShadow: `0 0 0 1px ${GREEN.ring} inset`,
-                        }}
-                      >
-                        <div className="text-xs" style={{ color: GREEN.sage }}>
-                          {k}
-                        </div>
-                        <div
-                          className="text-xl sm:text-2xl font-extrabold"
-                          style={{ color: GREEN.base }}
-                        >
-                          {summary[k]}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div
-                    className="text-sm font-medium"
-                    style={{ color: GREEN.text }}
-                  >
-                    Preview (10 baris pertama)
-                  </div>
-                  <pre
-                    className="text-[11px] sm:text-xs overflow-auto max-h-64 rounded-xl p-3"
-                    style={{
-                      background: "#F8FBF9",
-                      boxShadow: `0 0 0 1px ${GREEN.ring} inset`,
-                      color: "#0F172A",
-                    }}
-                  >
-                    {JSON.stringify(rows.slice(0, 10), null, 2)}
-                  </pre>
-                </div>
-              )}
+              <div
+                className="rounded-xl overflow-hidden"
+                style={{
+                  border: `1px solid ${GREEN.border}`,
+                  background: "#FFF",
+                }}
+              >
+                <img
+                  src={imgPreview}
+                  className="w-full max-h-[360px] object-contain sm:object-cover"
+                />
+              </div>
             </div>
           )}
 

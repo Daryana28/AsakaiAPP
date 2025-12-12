@@ -4,13 +4,15 @@
 import useSWR, { useSWRConfig } from "swr";
 import Link from "next/link";
 import Shell from "@/components/shell";
+import { useState } from "react";
+import ExcelEditorModal from "@/components/ExcelEditorModal";
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
 type DashboardRow = {
   dept: string;
-  qty_seihan: number; // target
-  qty_aktual: number; // actual
+  qty_seihan: number;
+  qty_aktual: number;
 };
 
 type DashboardResponse = {
@@ -195,6 +197,8 @@ function DeptCard({
 export default function Page() {
   const { mutate } = useSWRConfig();
 
+  const [selectedIssue, setSelectedIssue] = useState<IssueRow | null>(null);
+
   const { data, isLoading, error } = useSWR<DashboardResponse>(
     "/api/dashboard",
     fetcher,
@@ -233,15 +237,30 @@ export default function Page() {
   const shiftLabel =
     data?.shift === 1 ? "Shift 1 (08:00 - 20:00)" : "Shift 2 (20:00 - 08:00)";
 
-  // ==== bagian Issue tetap seperti versi kamu ====
-  const getFileUrl = (f: IssueRow) => f.file_path || f.cover_path || "";
+  // ==== helper untuk file & cover ====
+  // File asli (Excel, PDF, dll) → dipakai untuk Open & Download
+  const getFileUrl = (f: IssueRow) => f.file_path || "";
+
+  // Gambar cover (thumbnail) → hanya untuk tampilan kartu
+  const getCoverUrl = (f: IssueRow) => f.cover_path || f.file_path || "";
 
   const openIssue = (f: IssueRow) => {
     const url = getFileUrl(f);
+
     if (!url) {
       alert("File tidak ditemukan.");
       return;
     }
+
+    const lower = url.toLowerCase();
+
+    // Kalau Excel → buka modal editor
+    if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
+      setSelectedIssue(f);
+      return;
+    }
+
+    // Selain Excel → tetap buka tab baru
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
@@ -266,6 +285,15 @@ export default function Page() {
       alert("Terjadi error saat menghapus issue.");
     }
   };
+
+  // ==== kelompokkan issue per departemen ====
+  const issuesByDept: Record<string, IssueRow[]> = {};
+  for (const issue of issues) {
+    const key = issue.dept && issue.dept.trim() ? issue.dept.trim() : "Lainnya";
+    if (!issuesByDept[key]) issuesByDept[key] = [];
+    issuesByDept[key].push(issue);
+  }
+  const groupedDeptNames = Object.keys(issuesByDept).sort(); // urut alfabet
 
   return (
     <Shell>
@@ -304,166 +332,185 @@ export default function Page() {
           </div>
 
           {/* ===== ISSUE ===== */}
-          <div className="mt-10 space-y-3 bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
+          <div className="mt-10 space-y-4 bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold">ISSUE</h3>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-              {issues.length === 0 ? (
-                <div className="text-sm text-slate-500">Belum ada issue.</div>
-              ) : (
-                issues.map((f) => {
-                  const coverSrc = f.cover_path || f.file_path || "";
+            {issues.length === 0 ? (
+              <div className="text-sm text-slate-500">Belum ada issue.</div>
+            ) : (
+              <div className="space-y-6">
+                {groupedDeptNames.map((deptName) => {
+                  const deptIssues = issuesByDept[deptName];
                   return (
-                    <div
-                      key={f.id}
-                      className="bg-white rounded-xl border border-slate-200 hover:shadow-md transition overflow-hidden flex flex-col"
-                      title={f.file_name}
-                    >
-                      {/* Cover */}
-                      <div className="w-full h-48 bg-slate-100 relative group">
-                        {coverSrc ? (
-                          <img
-                            src={coverSrc}
-                            alt={`cover-${f.file_name}`}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              const img = e.currentTarget;
-                              img.style.display = "none";
-                              img.insertAdjacentHTML(
-                                "afterend",
-                                `<div class='w-full h-full flex items-center justify-center text-slate-400'>
-                                   <svg class='w-16 h-16' viewBox='0 0 24 24' fill='none' stroke='currentColor'>
-                                     <path stroke-linecap='round' stroke-linejoin='round' stroke-width='2'
-                                       d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                                   </svg>
-                                 </div>`
-                              );
-                            }}
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-slate-400">
-                            <svg
-                              className="w-16 h-16"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth="2"
-                                d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                              />
-                            </svg>
-                          </div>
-                        )}
-
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
-                          <div className="w-full text-white">
-                            <div className="text-sm font-medium truncate">
-                              {f.file_name}
-                            </div>
-                            <div className="text-xs opacity-75">
-                              {f.uploadedAt
-                                ? new Date(
-                                    f.uploadedAt
-                                  ).toLocaleString("id-ID")
-                                : ""}
-                            </div>
-                          </div>
-                        </div>
+                    <div key={deptName} className="space-y-2">
+                      <div className="text-sm font-semibold text-slate-700">
+                        {deptName}
                       </div>
-
-                      {/* Info + Actions */}
-                      <div className="p-4 flex-1">
-                        <div className="flex items-center gap-2 text-xs text-emerald-600 font-medium">
-                          <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-                          {f.dept || "File"}
-                        </div>
-                        <div className="mt-3 flex items-center gap-2">
-                          {/* Buka */}
-                          <button
-                            onClick={() => openIssue(f)}
-                            className="flex-1 p-2 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-600 text-sm flex items-center justify-center gap-2 transition-colors"
-                            title="Open / View"
-                          >
-                            <svg
-                              className="w-4 h-4"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                        {deptIssues.map((f) => {
+                          const coverSrc = getCoverUrl(f);
+                          return (
+                            <div
+                              key={f.id}
+                              className="bg-white rounded-xl border border-slate-200 hover:shadow-md transition overflow-hidden flex flex-col"
+                              title={f.file_name}
                             >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth="2"
-                                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
-                              />
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth="2"
-                                d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
-                              />
-                            </svg>
-                            Buka
-                          </button>
+                              {/* Cover */}
+                              <div className="w-full h-48 bg-slate-100 relative group">
+                                {coverSrc ? (
+                                  <img
+                                    src={coverSrc}
+                                    alt={`cover-${f.file_name}`}
+                                    className="w-full h-full object-cover"
+                                    onError={(e) => {
+                                      const img = e.currentTarget;
+                                      img.style.display = "none";
+                                      img.insertAdjacentHTML(
+                                        "afterend",
+                                        `<div class='w-full h-full flex items-center justify-center text-slate-400'>
+                                           <svg class='w-16 h-16' viewBox='0 0 24 24' fill='none' stroke='currentColor'>
+                                             <path stroke-linecap='round' stroke-linejoin='round' stroke-width='2'
+                                               d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                                           </svg>
+                                         </div>`
+                                      );
+                                    }}
+                                  />
+                                ) : (
+                                  <div className="w-full h-full flex items-center justify-center text-slate-400">
+                                    <svg
+                                      className="w-16 h-16"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                    >
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth="2"
+                                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                                      />
+                                    </svg>
+                                  </div>
+                                )}
 
-                          {/* Unduh */}
-                          <a
-                            href={getFileUrl(f) || "#"}
-                            download={f.file_name || undefined}
-                            className="flex-1 p-2 rounded-md bg-slate-50 hover:bg-slate-100 text-slate-600 text-sm flex items-center justify-center gap-2 transition-colors"
-                            title="Download"
-                          >
-                            <svg
-                              className="w-4 h-4"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth="2"
-                                d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                              />
-                            </svg>
-                            Unduh
-                          </a>
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
+                                  <div className="w-full text-white">
+                                    <div className="text-sm font-medium truncate">
+                                      {f.file_name}
+                                    </div>
+                                    <div className="text-xs opacity-75">
+                                      {f.uploadedAt
+                                        ? new Date(
+                                            f.uploadedAt
+                                          ).toLocaleString("id-ID")
+                                        : ""}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
 
-                          {/* Delete */}
-                          <button
-                            onClick={() => handleDelete(f.id)}
-                            className="p-2 rounded-md bg-red-50 hover:bg-red-100 text-red-600 transition-colors"
-                            title="Delete"
-                          >
-                            <svg
-                              className="w-4 h-4"
-                              viewBox="0 0 24 24"
-                              fill="none"
-                              stroke="currentColor"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth="2"
-                                d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                              />
-                            </svg>
-                          </button>
-                        </div>
+                              {/* Info + Actions */}
+                              <div className="p-4 flex-1">
+                                <div className="flex items-center gap-2 text-xs text-emerald-600 font-medium">
+                                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                                  {f.dept || "File"}
+                                </div>
+                                <div className="mt-3 flex items-center gap-2">
+                                  {/* Buka */}
+                                  <button
+                                    onClick={() => openIssue(f)}
+                                    className="flex-1 p-2 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-600 text-sm flex items-center justify-center gap-2 transition-colors"
+                                    title="Open / View"
+                                  >
+                                    <svg
+                                      className="w-4 h-4"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                    >
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth="2"
+                                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                                      />
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth="2"
+                                        d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                                      />
+                                    </svg>
+                                    Buka
+                                  </button>
+
+                                  {/* Unduh */}
+                                  <a
+                                    href={getFileUrl(f) || "#"}
+                                    download={f.file_name || undefined}
+                                    className="flex-1 p-2 rounded-md bg-slate-50 hover:bg-slate-100 text-slate-600 text-sm flex items-center justify-center gap-2 transition-colors"
+                                    title="Download"
+                                  >
+                                    <svg
+                                      className="w-4 h-4"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                    >
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth="2"
+                                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                                      />
+                                    </svg>
+                                    Unduh
+                                  </a>
+
+                                  {/* Delete */}
+                                  <button
+                                    onClick={() => handleDelete(f.id)}
+                                    className="p-2 rounded-md bg-red-50 hover:bg-red-100 text-red-600 transition-colors"
+                                    title="Delete"
+                                  >
+                                    <svg
+                                      className="w-4 h-4"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                    >
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth="2"
+                                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                      />
+                                    </svg>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   );
-                })
-              )}
-            </div>
+                })}
+              </div>
+            )}
           </div>
         </>
       )}
+
+      {/* Modal editor Excel */}
+      <ExcelEditorModal
+        open={!!selectedIssue}
+        fileUrl={selectedIssue ? getFileUrl(selectedIssue) : ""}
+        onClose={() => setSelectedIssue(null)}
+      />
     </Shell>
   );
 }

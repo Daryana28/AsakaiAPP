@@ -3,6 +3,36 @@ import { getSqlPool } from "@/lib/mssql";
 
 export const dynamic = "force-dynamic";
 
+// Mapping dept dari 2 digit awal SETSUBICD (TANPA S1)
+const DEPT_CASE = `
+  CASE
+    WHEN LEFT(SETSUBICD, 2) IN ('12','16','22') THEN 'INJECTION'
+    WHEN LEFT(SETSUBICD, 2) IN ('13','14','15','23','24','25') THEN 'ST'
+    WHEN LEFT(SETSUBICD, 2) IN ('11','21') THEN 'ASSY'
+    ELSE NULL
+  END
+`;
+
+// Cut-off shift:
+// Shift 1: 08:00–20:00 => pakai tanggal hari ini
+// Shift 2: 20:00–08:00 => kalau jam < 08:00 pakai tanggal kemarin, selain itu hari ini
+function getShiftBaseYmd() {
+  const now = new Date();
+  const hour = now.getHours();
+
+  const fmt = (dt: Date) =>
+    dt.getFullYear().toString() +
+    String(dt.getMonth() + 1).padStart(2, "0") +
+    String(dt.getDate()).padStart(2, "0");
+
+  if (hour < 8) {
+    const y = new Date(now);
+    y.setDate(y.getDate() - 1);
+    return fmt(y);
+  }
+  return fmt(now);
+}
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -15,60 +45,50 @@ export async function GET(request: Request) {
       );
     }
 
-    // Tanggal hari ini sama seperti di /api/dashboard (YYYYMMDD)
-    const now = new Date();
-    const today =
-      now.getFullYear().toString() +
-      String(now.getMonth() + 1).padStart(2, "0") +
-      String(now.getDate()).padStart(2, "0");
-
+    const baseYmd = getShiftBaseYmd(); // YYYYMMDD sesuai aturan shift
     const pool = await getSqlPool();
 
     const result = await pool
       .request()
-      .input("tgl", today)
-      .input("dept", dept)
+      .input("D_YMD", baseYmd)
+      .input("DEPT", dept)
       .query(`
-        WITH src AS (
+        WITH PlanLine AS (
           SELECT
-            I_IND_DEST_CD AS line,
-            I_ACP_QTY,
-            CASE LEFT(I_IND_DEST_CD, 2)
-              WHEN '11' THEN 'ASSY'
-              WHEN '21' THEN 'ASSY'
-              WHEN '12' THEN 'INJECTION'
-              WHEN '16' THEN 'INJECTION'
-              WHEN '22' THEN 'INJECTION'
-              WHEN '13' THEN 'ST'
-              WHEN '14' THEN 'ST'
-              WHEN '15' THEN 'ST'
-              WHEN '23' THEN 'ST'
-              WHEN '24' THEN 'ST'
-              WHEN '25' THEN 'ST'
-              ELSE 'OTHER'
-            END AS dept
-          FROM HHT_GATHERING_INF_ORA
-          WHERE CONVERT(VARCHAR(8), I_ACP_DATE, 112) = @tgl
-            AND LEFT(I_IND_DEST_CD, 2) IN 
-              ('11','21','12','16','22','13','14','15','23','24','25')
+            SETSUBICD AS line,
+            ${DEPT_CASE} AS dept,
+            SUM(QTY) AS target
+          FROM dbo.TBL_R_PRODPLAN_MIRROR
+          WHERE D_YMD = @D_YMD
+            AND ${DEPT_CASE} IS NOT NULL
+          GROUP BY SETSUBICD, ${DEPT_CASE}
+        ),
+        ResultLine AS (
+          SELECT
+            SETSUBICD AS line,
+            ${DEPT_CASE} AS dept,
+            SUM(CMPQTY) AS actual   -- ✅ TANPA pengurangan 20%
+          FROM dbo.TBL_R_PRODRESULT_MIRROR
+          WHERE D_YMD = @D_YMD
+            AND ${DEPT_CASE} IS NOT NULL
+          GROUP BY SETSUBICD, ${DEPT_CASE}
         )
         SELECT
-          line,
-          -- TARGET = full qty
-          SUM(I_ACP_QTY) AS target,
-          -- ACTUAL = dikurangi 20% (80% dari target)
-          CAST(SUM(I_ACP_QTY) * 0.8 AS INT) AS actual
-        FROM src
-        WHERE dept = @dept
-        GROUP BY line
-        ORDER BY line ASC;
+          COALESCE(p.line, r.line) AS line,
+          ISNULL(p.target, 0) AS target,
+          ISNULL(r.actual, 0) AS actual
+        FROM PlanLine p
+        FULL OUTER JOIN ResultLine r
+          ON p.line = r.line AND p.dept = r.dept
+        WHERE COALESCE(p.dept, r.dept) = @DEPT
+        ORDER BY COALESCE(p.line, r.line) ASC;
       `);
 
-    const data = result.recordset.map((row: any) => {
-      const target = row.target as number;
-      const actual = row.actual as number;
+    const data = (result.recordset ?? []).map((row: any) => {
+      const target = Number(row.target) || 0;
+      const actual = Number(row.actual) || 0;
       const efficiency =
-        target > 0 ? parseFloat(((actual / target) * 100).toFixed(1)) : 0;
+        target > 0 ? Number(((actual / target) * 100).toFixed(1)) : 0;
 
       return {
         line: row.line,

@@ -14,12 +14,11 @@ const sqlServerConfig: sql.config = {
 };
 
 // Mapping departemen dari 2 digit awal SETSUBICD
-// + tambahan S1 -> ASSY
 const DEPT_CASE = `
   CASE
     WHEN LEFT(SETSUBICD, 2) IN ('12','16','22') THEN 'INJECTION'
     WHEN LEFT(SETSUBICD, 2) IN ('13','14','15','23','24','25') THEN 'ST'
-    WHEN LEFT(SETSUBICD, 2) IN ('11','21','S1') THEN 'ASSY'
+    WHEN LEFT(SETSUBICD, 2) IN ('11','21') THEN 'ASSY'
     ELSE NULL
   END
 `;
