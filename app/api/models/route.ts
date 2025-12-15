@@ -37,14 +37,13 @@ function getShiftBaseYmdJakarta() {
     const dd = String(dt.getDate()).padStart(2, "0");
     baseYmd = `${yy}${mm}${dd}`;
   }
-
   return baseYmd; // YYYYMMDD
 }
 
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const lineParam = searchParams.get("line"); // ?line=21HH dll
+    const lineParam = searchParams.get("line"); // ?line=12A6 dll
 
     if (!lineParam) {
       return NextResponse.json(
@@ -54,13 +53,21 @@ export async function GET(request: Request) {
     }
 
     const line = lineParam.trim().toUpperCase();
-
     const baseYmd = getShiftBaseYmdJakarta();
+
     const pool = await getSqlPool();
 
-    // MODEL = KANBAN
-    // TARGET = SUM(QTY) dari PRODPLAN
-    // ACTUAL = SUM(CMPQTY) dari PRODRESULT
+    /**
+     * TARGET:
+     * - dari PRODPLAN_MIRROR
+     * - model = KANBAN (seperti semula)
+     *
+     * ACTUAL:
+     * - dari TPN0007_201
+     * - model = I_DRW_NO
+     * - skip NULL / kosong (tidak dimunculkan)
+     * - qty = SUM(I_ACP_QTY)
+     */
     const result = await pool
       .request()
       .input("D_YMD", baseYmd)
@@ -68,21 +75,23 @@ export async function GET(request: Request) {
       .query(`
         WITH PlanModel AS (
           SELECT
-            model = ISNULL(NULLIF(LTRIM(RTRIM(KANBAN)), ''), '(NO_KANBAN)'),
-            SUM(QTY) AS target
+            model = LTRIM(RTRIM(KANBAN)),
+            target = SUM(QTY)
           FROM dbo.TBL_R_PRODPLAN_MIRROR
           WHERE D_YMD = @D_YMD
             AND UPPER(LTRIM(RTRIM(SETSUBICD))) = @LINE
-          GROUP BY ISNULL(NULLIF(LTRIM(RTRIM(KANBAN)), ''), '(NO_KANBAN)')
+            AND NULLIF(LTRIM(RTRIM(KANBAN)), '') IS NOT NULL
+          GROUP BY LTRIM(RTRIM(KANBAN))
         ),
         ResultModel AS (
           SELECT
-            model = ISNULL(NULLIF(LTRIM(RTRIM(KANBAN)), ''), '(NO_KANBAN)'),
-            SUM(CMPQTY) AS actual
-          FROM dbo.TBL_R_PRODRESULT_MIRROR
-          WHERE D_YMD = @D_YMD
-            AND UPPER(LTRIM(RTRIM(SETSUBICD))) = @LINE
-          GROUP BY ISNULL(NULLIF(LTRIM(RTRIM(KANBAN)), ''), '(NO_KANBAN)')
+            model = LTRIM(RTRIM(I_DRW_NO)),
+            actual = SUM(CAST(I_ACP_QTY AS bigint))
+          FROM dbo.TPN0007_201
+          WHERE I_ACP_DATE = @D_YMD
+            AND UPPER(LTRIM(RTRIM(I_IND_DEST_CD))) = @LINE
+            AND NULLIF(LTRIM(RTRIM(I_DRW_NO)), '') IS NOT NULL
+          GROUP BY LTRIM(RTRIM(I_DRW_NO))
         )
         SELECT
           COALESCE(r.model, p.model) AS model,
@@ -91,6 +100,8 @@ export async function GET(request: Request) {
         FROM ResultModel r
         FULL OUTER JOIN PlanModel p
           ON p.model = r.model
+        -- biar yg kosong gak keikut walaupun join
+        WHERE COALESCE(r.model, p.model) IS NOT NULL
         ORDER BY ISNULL(r.actual, 0) DESC, COALESCE(r.model, p.model) ASC;
       `);
 

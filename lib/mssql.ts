@@ -1,12 +1,6 @@
 // lib/mssql.ts
 import sql from "mssql";
 
-console.log("ENV CHECK", {
-  user: process.env.SQLSERVER_USER,
-  host: process.env.SQLSERVER_HOST,
-  db: process.env.SQLSERVER_DB,
-}); 
-
 const config: sql.config = {
   user: process.env.SQLSERVER_USER,
   password: process.env.SQLSERVER_PASSWORD,
@@ -17,13 +11,22 @@ const config: sql.config = {
     encrypt: false,
     trustServerCertificate: true,
   },
+
+  // ✅ penting untuk mengurangi timeout random
+  pool: {
+    max: 10,
+    min: 0,
+    idleTimeoutMillis: 30_000,
+  },
+  connectionTimeout: 30_000,
+  requestTimeout: 60_000, // ✅ default 15000ms -> naikin ke 60s
 };
 
-let pool: sql.ConnectionPool;
+let pool: sql.ConnectionPool | null = null;
 
 export async function getSqlPool() {
   if (!pool) {
-    pool = await sql.connect(config);
+    pool = await new sql.ConnectionPool(config).connect();
   } else if (!pool.connected) {
     await pool.connect();
   }

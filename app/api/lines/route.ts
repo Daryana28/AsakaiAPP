@@ -3,12 +3,22 @@ import { getSqlPool } from "@/lib/mssql";
 
 export const dynamic = "force-dynamic";
 
-// Mapping dept dari 2 digit awal SETSUBICD (TANPA S1)
-const DEPT_CASE = `
+// PLAN: Mapping dept dari 2 digit awal SETSUBICD
+const DEPT_CASE_PLAN = `
   CASE
     WHEN LEFT(SETSUBICD, 2) IN ('12','16','22') THEN 'INJECTION'
     WHEN LEFT(SETSUBICD, 2) IN ('13','14','15','23','24','25') THEN 'ST'
     WHEN LEFT(SETSUBICD, 2) IN ('11','21') THEN 'ASSY'
+    ELSE NULL
+  END
+`;
+
+// RESULT: Mapping dept dari 2 digit awal I_IND_DEST_CD (line)
+const DEPT_CASE_RESULT = `
+  CASE
+    WHEN LEFT(I_IND_DEST_CD, 2) IN ('12','16','22') THEN 'INJECTION'
+    WHEN LEFT(I_IND_DEST_CD, 2) IN ('13','14','15','23','24','25') THEN 'ST'
+    WHEN LEFT(I_IND_DEST_CD, 2) IN ('11','21') THEN 'ASSY'
     ELSE NULL
   END
 `;
@@ -45,7 +55,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const baseYmd = getShiftBaseYmd(); // YYYYMMDD sesuai aturan shift
+    const baseYmd = getShiftBaseYmd();
     const pool = await getSqlPool();
 
     const result = await pool
@@ -53,25 +63,28 @@ export async function GET(request: Request) {
       .input("D_YMD", baseYmd)
       .input("DEPT", dept)
       .query(`
-        WITH PlanLine AS (
+        WITH
+        PlanLine AS (
           SELECT
             SETSUBICD AS line,
-            ${DEPT_CASE} AS dept,
-            SUM(QTY) AS target
+            ${DEPT_CASE_PLAN} AS dept,
+            SUM(CAST(QTY AS BIGINT)) AS target
           FROM dbo.TBL_R_PRODPLAN_MIRROR
           WHERE D_YMD = @D_YMD
-            AND ${DEPT_CASE} IS NOT NULL
-          GROUP BY SETSUBICD, ${DEPT_CASE}
+            AND ${DEPT_CASE_PLAN} IS NOT NULL
+          GROUP BY SETSUBICD, ${DEPT_CASE_PLAN}
         ),
         ResultLine AS (
           SELECT
-            SETSUBICD AS line,
-            ${DEPT_CASE} AS dept,
-            SUM(CMPQTY) AS actual   -- ✅ TANPA pengurangan 20%
-          FROM dbo.TBL_R_PRODRESULT_MIRROR
-          WHERE D_YMD = @D_YMD
-            AND ${DEPT_CASE} IS NOT NULL
-          GROUP BY SETSUBICD, ${DEPT_CASE}
+            I_IND_DEST_CD AS line,
+            ${DEPT_CASE_RESULT} AS dept,
+            SUM(CAST(I_ACP_QTY AS BIGINT)) AS actual
+          FROM dbo.TPN0007_201
+          WHERE CAST(I_ACP_DATE AS VARCHAR(8)) = @D_YMD
+            AND I_IND_DEST_CD IS NOT NULL
+            AND LTRIM(RTRIM(I_IND_DEST_CD)) <> ''
+            AND ${DEPT_CASE_RESULT} IS NOT NULL
+          GROUP BY I_IND_DEST_CD, ${DEPT_CASE_RESULT}
         )
         SELECT
           COALESCE(p.line, r.line) AS line,

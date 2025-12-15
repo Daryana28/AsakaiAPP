@@ -300,7 +300,7 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
                 <table className="w-full text-sm text-left">
                   <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
                     <tr>
-                      <th className="px-6 py-3">Nama Model</th>
+                      <th className="px-6 py-3">Kanban</th>
                       <th className="px-6 py-3 text-right">Target</th>
                       <th className="px-6 py-3 text-right">Actual</th>
                     </tr>

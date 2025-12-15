@@ -59,10 +59,13 @@ const GAUGE_COLORS: Record<
   },
 };
 
-function formatNumber(n: number | null | undefined) {
+function formatNumber(n: number | string | null | undefined) {
   if (n == null) return "-";
-  return n.toLocaleString("en-US");
+  const num = Number(n);
+  if (Number.isNaN(num)) return "-";
+  return num.toLocaleString("en-US");
 }
+
 
 /* ========= GAUGE ========= */
 function HalfGauge({ percent, color }: GaugeProps) {
@@ -151,7 +154,25 @@ function DeptCard({
   href: string;
 }) {
   const percent = target > 0 ? (actual / target) * 100 : 0;
-  const gap = target || actual ? target - actual : null;
+
+  // GAP = actual - target
+  const gap = target || actual ? actual - target : null;
+  const gapAbs = gap == null ? null : Math.abs(gap);
+
+  const gapColor =
+    gap == null
+      ? "text-gray-700"
+      : gap === 0
+      ? "text-emerald-600"
+      : "text-red-500";
+
+const gapText =
+  gap == null || gapAbs == null
+    ? "-"
+    : gap < 0
+    ? `-${formatNumber(gapAbs)}`
+    : formatNumber(gapAbs);
+
 
   return (
     <Link href={href} className="block group cursor-pointer h-full">
@@ -171,20 +192,18 @@ function DeptCard({
         <div className="grid grid-cols-1 gap-1.5 text-xs md:text-sm text-gray-700 text-center">
           <div>
             <div className="font-semibold">Production Target (Pcs)</div>
-            <div className="font-medium tracking-tight">
-              {formatNumber(target)}
-            </div>
+            <div className="font-medium tracking-tight">{formatNumber(target)}</div>
           </div>
           <div>
             <div className="font-semibold">Production Result (Pcs)</div>
-            <div className="font-medium tracking-tight">
-              {formatNumber(actual)}
-            </div>
+            <div className="font-medium tracking-tight">{formatNumber(actual)}</div>
           </div>
+
+          {/* ✅ GAP pakai text + warna sesuai rule */}
           <div>
             <div className="font-semibold">GAP (Pcs)</div>
-            <div className="font-medium tracking-tight">
-              {gap == null ? "-" : formatNumber(gap)}
+            <div className={`font-medium tracking-tight ${gapColor}`}>
+              {gapText}
             </div>
           </div>
         </div>
@@ -237,11 +256,7 @@ export default function Page() {
   const shiftLabel =
     data?.shift === 1 ? "Shift 1 (08:00 - 20:00)" : "Shift 2 (20:00 - 08:00)";
 
-  // ==== helper untuk file & cover ====
-  // File asli (Excel, PDF, dll) → dipakai untuk Open & Download
   const getFileUrl = (f: IssueRow) => f.file_path || "";
-
-  // Gambar cover (thumbnail) → hanya untuk tampilan kartu
   const getCoverUrl = (f: IssueRow) => f.cover_path || f.file_path || "";
 
   const openIssue = (f: IssueRow) => {
@@ -254,13 +269,11 @@ export default function Page() {
 
     const lower = url.toLowerCase();
 
-    // Kalau Excel → buka modal editor
     if (lower.endsWith(".xlsx") || lower.endsWith(".xls")) {
       setSelectedIssue(f);
       return;
     }
 
-    // Selain Excel → tetap buka tab baru
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
@@ -286,14 +299,13 @@ export default function Page() {
     }
   };
 
-  // ==== kelompokkan issue per departemen ====
   const issuesByDept: Record<string, IssueRow[]> = {};
   for (const issue of issues) {
     const key = issue.dept && issue.dept.trim() ? issue.dept.trim() : "Lainnya";
     if (!issuesByDept[key]) issuesByDept[key] = [];
     issuesByDept[key].push(issue);
   }
-  const groupedDeptNames = Object.keys(issuesByDept).sort(); // urut alfabet
+  const groupedDeptNames = Object.keys(issuesByDept).sort();
 
   return (
     <Shell>
@@ -311,13 +323,11 @@ export default function Page() {
 
       {!isLoading && (
         <>
-          {/* Info Shift aktif */}
           <div className="mt-2 text-sm text-slate-600">
-            <span className="font-semibold">Current:</span> 
-            {shiftLabel} | <span className="font-mono">{data?.baseYmd}</span>
+            <span className="font-semibold">Current:</span> {shiftLabel} |{" "}
+            <span className="font-mono">{data?.baseYmd}</span>
           </div>
 
-          {/* ===== GAUGE DEPT ===== */}
           <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-5">
             {rows.map((row) => (
               <DeptCard
@@ -331,7 +341,6 @@ export default function Page() {
             ))}
           </div>
 
-          {/* ===== ISSUE ===== */}
           <div className="mt-10 space-y-4 bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-semibold">ISSUE</h3>
@@ -357,7 +366,6 @@ export default function Page() {
                               className="bg-white rounded-xl border border-slate-200 hover:shadow-md transition overflow-hidden flex flex-col"
                               title={f.file_name}
                             >
-                              {/* Cover */}
                               <div className="w-full h-48 bg-slate-100 relative group">
                                 {coverSrc ? (
                                   <img
@@ -403,23 +411,21 @@ export default function Page() {
                                     </div>
                                     <div className="text-xs opacity-75">
                                       {f.uploadedAt
-                                        ? new Date(
-                                            f.uploadedAt
-                                          ).toLocaleString("id-ID")
+                                        ? new Date(f.uploadedAt).toLocaleString(
+                                            "id-ID"
+                                          )
                                         : ""}
                                     </div>
                                   </div>
                                 </div>
                               </div>
 
-                              {/* Info + Actions */}
                               <div className="p-4 flex-1">
                                 <div className="flex items-center gap-2 text-xs text-emerald-600 font-medium">
                                   <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
                                   {f.dept || "File"}
                                 </div>
                                 <div className="mt-3 flex items-center gap-2">
-                                  {/* Buka */}
                                   <button
                                     onClick={() => openIssue(f)}
                                     className="flex-1 p-2 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-600 text-sm flex items-center justify-center gap-2 transition-colors"
@@ -447,7 +453,6 @@ export default function Page() {
                                     Buka
                                   </button>
 
-                                  {/* Unduh */}
                                   <a
                                     href={getFileUrl(f) || "#"}
                                     download={f.file_name || undefined}
@@ -470,7 +475,6 @@ export default function Page() {
                                     Unduh
                                   </a>
 
-                                  {/* Delete */}
                                   <button
                                     onClick={() => handleDelete(f.id)}
                                     className="p-2 rounded-md bg-red-50 hover:bg-red-100 text-red-600 transition-colors"
@@ -505,12 +509,11 @@ export default function Page() {
         </>
       )}
 
-      {/* Modal editor Excel */}
-    <IssueChartEditorModal
-      open={!!selectedIssue}
-      issueId={selectedIssue ? selectedIssue.id : null}
-      onClose={() => setSelectedIssue(null)}
-    />
+      <IssueChartEditorModal
+        open={!!selectedIssue}
+        issueId={selectedIssue ? selectedIssue.id : null}
+        onClose={() => setSelectedIssue(null)}
+      />
     </Shell>
   );
 }
