@@ -5,7 +5,7 @@ import useSWR, { useSWRConfig } from "swr";
 import Link from "next/link";
 import Shell from "@/components/shell";
 import { useState } from "react";
-import ExcelEditorModal from "@/components/ExcelEditorModal";
+import IssueChartEditorModal from "@/components/IssueChartEditorModal";
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -313,8 +313,8 @@ export default function Page() {
         <>
           {/* Info Shift aktif */}
           <div className="mt-2 text-sm text-slate-600">
-            <span className="font-semibold">Current:</span> {shiftLabel} | Base
-            date D_YMD: <span className="font-mono">{data?.baseYmd}</span>
+            <span className="font-semibold">Current:</span> 
+            {shiftLabel} | <span className="font-mono">{data?.baseYmd}</span>
           </div>
 
           {/* ===== GAUGE DEPT ===== */}
@@ -506,11 +506,11 @@ export default function Page() {
       )}
 
       {/* Modal editor Excel */}
-      <ExcelEditorModal
-        open={!!selectedIssue}
-        fileUrl={selectedIssue ? getFileUrl(selectedIssue) : ""}
-        onClose={() => setSelectedIssue(null)}
-      />
+    <IssueChartEditorModal
+      open={!!selectedIssue}
+      issueId={selectedIssue ? selectedIssue.id : null}
+      onClose={() => setSelectedIssue(null)}
+    />
     </Shell>
   );
 }
