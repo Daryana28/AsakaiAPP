@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import useSWR from "swr";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -33,9 +33,9 @@ interface LineChartContainerProps {
 // Data dari /api/lines
 type LineRow = {
   line: string;
-  target: number;      // full qty (100%)
-  actual: number;      // 80% dari target (hasil pengurangan 20%)
-  efficiency: number;  // actual / target * 100
+  target: number;
+  actual: number;
+  efficiency: number;
 };
 
 // Tipe data untuk Detail Model
@@ -47,15 +47,27 @@ type ModelDetail = {
 
 export default function LineChartContainer({ dept }: LineChartContainerProps) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // ✅ ambil view dari URL page (/st?view=yesterday)
+  const view = useMemo(() => {
+    const v = (searchParams.get("view") || "current").toLowerCase();
+    return v === "yesterday" ? "yesterday" : "current";
+  }, [searchParams]);
 
   const [isOpen, setIsOpen] = useState(false);
   const [selectedLine, setSelectedLine] = useState<string>("");
   const [modelData, setModelData] = useState<ModelDetail[]>([]);
   const [isLoadingModel, setIsLoadingModel] = useState(false);
 
-  // === FETCH DATA LINE ===
+  // ✅ FETCH DATA LINE (ikut view)
+  const linesUrl = useMemo(
+    () => `/api/lines?dept=${encodeURIComponent(dept)}&view=${view}`,
+    [dept, view]
+  );
+
   const { data: items, isLoading } = useSWR<LineRow[]>(
-    `/api/lines?dept=${dept}`,
+    linesUrl,
     fetcher,
     { refreshInterval: 5000 }
   );
@@ -66,7 +78,7 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
   const targets = safeItems.map((i) => i.target);
   const actuals = safeItems.map((i) => i.actual);
 
-  // --- KLIK BAR UNTUK DETAIL MODEL ---
+  // ✅ KLIK BAR UNTUK DETAIL MODEL (ikut view)
   const handleBarClick = async (event: ChartEvent, elements: ActiveElement[]) => {
     if (elements.length > 0) {
       const index = elements[0].index;
@@ -78,11 +90,11 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
       setModelData([]);
 
       try {
-        const res = await fetch(`/api/models?line=${clickedLine}`);
+        const res = await fetch(
+          `/api/models?line=${encodeURIComponent(clickedLine)}&view=${view}`
+        );
         const data = await res.json();
-        if (Array.isArray(data)) {
-          setModelData(data);
-        }
+        if (Array.isArray(data)) setModelData(data);
       } catch (error) {
         console.error("Gagal ambil detail model", error);
       } finally {
@@ -102,12 +114,9 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
           const eff =
             i.efficiency ?? (i.target > 0 ? (i.actual / i.target) * 100 : 0);
 
-          // < 50%   -> merah
-          // 50–79%  -> kuning
-          // >= 80%  -> hijau
-          if (eff >= 80) return "rgba(34, 197, 94, 0.8)";   // hijau
-          if (eff >= 50) return "rgba(234, 179, 8, 0.8)";   // kuning
-          return "rgba(239, 68, 68, 0.8)";                  // merah
+          if (eff >= 80) return "rgba(34, 197, 94, 0.8)";
+          if (eff >= 50) return "rgba(234, 179, 8, 0.8)";
+          return "rgba(239, 68, 68, 0.8)";
         }),
         borderRadius: 4,
         hoverBackgroundColor: "rgba(59, 130, 246, 0.9)",
@@ -167,13 +176,13 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
       {
         label: "Target",
         data: modelTargets,
-        backgroundColor: "rgba(59, 130, 246, 0.5)", // biru transparan
+        backgroundColor: "rgba(59, 130, 246, 0.5)",
         borderRadius: 4,
       },
       {
         label: "Actual",
         data: modelActuals,
-        backgroundColor: "rgba(34, 197, 94, 0.7)", // hijau
+        backgroundColor: "rgba(34, 197, 94, 0.7)",
         borderRadius: 4,
       },
     ],
@@ -183,10 +192,7 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
     responsive: true,
     maintainAspectRatio: false,
     plugins: {
-      legend: {
-        display: true,
-        position: "top",
-      },
+      legend: { display: true, position: "top" },
       tooltip: {
         callbacks: {
           label: (ctx) =>
@@ -213,14 +219,17 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
     <div className="min-h-screen bg-slate-50 p-6 relative">
       {/* HEADER */}
       <div className="flex items-center justify-between mb-6">
-        <button
-          onClick={() => router.back()}
-          className="px-4 py-2 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 transition shadow-sm font-medium"
-        >
-          ← Kembali
-        </button>
+      <button
+        onClick={() => router.push(`/?view=${view}`)}
+        className="px-4 py-2 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-100 transition shadow-sm font-medium"
+      >
+        ← Kembali
+      </button>
         <h1 className="text-2xl font-bold text-slate-800">
           Grafik Per Line: <span className={titleColorClass}>{dept}</span>
+          <span className="ml-2 text-sm font-semibold text-slate-500">
+            ({view === "yesterday" ? "Kemarin" : "Current"})
+          </span>
         </h1>
         <div className="w-24" />
       </div>
@@ -258,6 +267,9 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
             <div className="bg-slate-100 px-6 py-4 border-b border-slate-200 flex justify-between items-center">
               <h3 className="text-lg font-bold text-slate-800">
                 Detail Line: <span className="text-blue-600">{selectedLine}</span>
+                <span className="ml-2 text-sm font-semibold text-slate-500">
+                  ({view === "yesterday" ? "Kemarin" : "Current"})
+                </span>
               </h3>
               <button
                 onClick={() => setIsOpen(false)}
@@ -278,10 +290,7 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
                   <div
                     className="relative h-full"
                     style={{
-                      minWidth:
-                        modelData.length > 0
-                          ? `${modelData.length * 80}px`
-                          : "100%",
+                      minWidth: modelData.length > 0 ? `${modelData.length * 80}px` : "100%",
                     }}
                   >
                     <Bar data={modelChartData} options={modelChartOptions} />
@@ -308,9 +317,7 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
                   <tbody className="divide-y divide-slate-100">
                     {modelData.map((m, idx) => (
                       <tr key={idx} className="hover:bg-slate-50">
-                        <td className="px-6 py-3 font-medium text-slate-700">
-                          {m.model}
-                        </td>
+                        <td className="px-6 py-3 font-medium text-slate-700">{m.model}</td>
                         <td className="px-6 py-3 text-right text-slate-600">
                           {m.target.toLocaleString()}
                         </td>

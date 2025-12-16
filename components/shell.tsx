@@ -94,19 +94,24 @@ function Clock() {
  *  Shell layout (Topbar + Sidebar + Content)
  *  --------------------------*/
 export default function Shell({ children }: { children: React.ReactNode }) {
-  // ✅ ambil state dari localStorage saat inisialisasi, biar gak reset saat pindah route
+  // ✅ FIX HYDRATION:
+  // Jangan baca localStorage di initializer (SSR vs Client bisa beda)
+  // Defaultkan dulu true, lalu sync dari localStorage setelah mount.
   const [open, setOpen] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true; // default SSR
-    const saved = localStorage.getItem("sidebar-open");
-    return saved === null ? true : saved === "1";
-  });
+  if (typeof window === "undefined") return true; // SSR safe
+  const saved = localStorage.getItem("sidebar-open");
+  return saved === null ? true : saved === "1";
+});
+
 
   const pathname = usePathname();
 
   // ✅ hanya simpan perubahan
   useEffect(() => {
-    if (typeof window !== "undefined") {
+    try {
       localStorage.setItem("sidebar-open", open ? "1" : "0");
+    } catch {
+      // ignore
     }
   }, [open]);
 
@@ -172,9 +177,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
         ].join(" ")}
       >
         <div className="h-full overflow-hidden">
-          <div className="px-4 pt-5 pb-4 text-[11px] tracking-wider font-semibold text-[#8AA197]">
-            {open ? "MENU" : ""}
-          </div>
+          <div className="px-4 pt-5 pb-4 text-[11px] tracking-wider font-semibold text-[#8AA197]">{open ? "MENU" : ""}</div>
 
           <nav className="px-3 space-y-1">
             {MENU.map((m) => {
@@ -194,9 +197,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             })}
           </nav>
 
-          <div className="px-4 pt-7 pb-3 text-[11px] tracking-wider font-semibold text-[#8AA197]">
-            {open ? "GENERAL" : ""}
-          </div>
+          <div className="px-4 pt-7 pb-3 text-[11px] tracking-wider font-semibold text-[#8AA197]">{open ? "GENERAL" : ""}</div>
 
           <nav className="px-3 space-y-1 pb-4">
             {GENERAL.map((g) => {
