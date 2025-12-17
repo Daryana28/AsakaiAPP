@@ -69,7 +69,7 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
   const { data: items, isLoading } = useSWR<LineRow[]>(
     linesUrl,
     fetcher,
-    { refreshInterval: 5000 }
+    { refreshInterval: 10000 }
   );
 
   const safeItems = Array.isArray(items) ? items : [];

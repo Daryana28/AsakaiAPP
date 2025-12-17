@@ -224,11 +224,11 @@ export default function Page() {
   const dashboardUrl = useMemo(() => `/api/dashboard?view=${view}`, [view]);
 
   const { data, isLoading, error } = useSWR<DashboardResponse>(dashboardUrl, fetcher, {
-    refreshInterval: 5000,
+    refreshInterval: 15000,
   });
 
   const { data: issuesData } = useSWR<IssueRow[]>("/api/asakai-list", fetcher, {
-    refreshInterval: 10000,
+    refreshInterval: 15000,
   });
 
   const issues = Array.isArray(issuesData) ? issuesData : [];

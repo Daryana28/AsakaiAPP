@@ -53,7 +53,7 @@ function prevYmdFrom(ymd: string) {
 
 /* ✅ MICRO CACHE */
 type CacheItem<T> = { exp: number; value: Promise<T> };
-const CACHE_TTL_MS = 4000;
+const CACHE_TTL_MS = 15000;
 const cache = new Map<string, CacheItem<any>>();
 
 function getCached<T>(key: string, fn: () => Promise<T>): Promise<T> {
@@ -101,39 +101,39 @@ export async function GET(request: Request) {
         .input("D_YMD", selectedYmd)
         .input("LINE", line)
         .query(`
-          SET NOCOUNT ON;
+        SET NOCOUNT ON;
 
-          WITH PlanModel AS (
-            SELECT
-              model = LTRIM(RTRIM(KANBAN)),
-              target = SUM(CAST(QTY AS bigint))
-            FROM dbo.TBL_R_PRODPLAN_MIRROR
-            WHERE D_YMD = @D_YMD
-              AND UPPER(LTRIM(RTRIM(SETSUBICD))) = @LINE
-              AND NULLIF(LTRIM(RTRIM(KANBAN)), '') IS NOT NULL
-            GROUP BY LTRIM(RTRIM(KANBAN))
-          ),
-          ResultModel AS (
-            SELECT
-              model = LTRIM(RTRIM(I_DRW_NO)),
-              actual = SUM(CAST(I_ACP_QTY AS bigint))
-            FROM dbo.TPN0007_201
-            WHERE CAST(I_ACP_DATE AS VARCHAR(8)) = @D_YMD
-              AND UPPER(LTRIM(RTRIM(I_IND_DEST_CD))) = @LINE
-              AND NULLIF(LTRIM(RTRIM(I_DRW_NO)), '') IS NOT NULL
-            GROUP BY LTRIM(RTRIM(I_DRW_NO))
-          )
-          SELECT
-            COALESCE(r.model, p.model) AS model,
-            ISNULL(p.target, 0) AS target,
-            ISNULL(r.actual, 0) AS actual
-          FROM ResultModel r
-          FULL OUTER JOIN PlanModel p
-            ON p.model = r.model
-          WHERE COALESCE(r.model, p.model) IS NOT NULL
-          ORDER BY ISNULL(r.actual, 0) DESC, COALESCE(r.model, p.model) ASC
-          OPTION (RECOMPILE);
-        `);
+            WITH PlanModel AS (
+        SELECT
+          model = KANBAN,
+          target = SUM(CAST(QTY AS bigint))
+        FROM dbo.TBL_R_PRODPLAN_MIRROR
+        WHERE D_YMD = @D_YMD
+          AND SETSUBICD = @LINE
+          AND KANBAN IS NOT NULL
+        GROUP BY KANBAN
+      ),
+      ResultModel AS (
+        SELECT
+          model = I_DRW_NO,
+          actual = SUM(CAST(I_ACP_QTY AS bigint))
+        FROM dbo.TPN0007_201
+        WHERE I_ACP_DATE = @D_YMD
+          AND I_IND_DEST_CD = @LINE
+          AND I_DRW_NO IS NOT NULL
+        GROUP BY I_DRW_NO
+      )
+      SELECT
+        COALESCE(r.model, p.model) AS model,
+        ISNULL(p.target, 0) AS target,
+        ISNULL(r.actual, 0) AS actual
+      FROM ResultModel r
+      FULL OUTER JOIN PlanModel p
+        ON p.model = r.model
+      ORDER BY actual DESC, model ASC
+      OPTION (RECOMPILE);
+      `);
+
 
       return result.recordset ?? [];
     });

@@ -51,7 +51,7 @@ function prevYmdFrom(ymd: string) {
 
 /* ✅ MICRO CACHE */
 type CacheItem<T> = { exp: number; value: Promise<T> };
-const CACHE_TTL_MS = 4000;
+const CACHE_TTL_MS = 15000;
 const cache = new Map<string, CacheItem<any>>();
 
 function getCached<T>(key: string, fn: () => Promise<T>): Promise<T> {
@@ -118,9 +118,9 @@ export async function GET(request: Request) {
               SUM(CAST(r.I_ACP_QTY AS BIGINT)) AS actual
             FROM dbo.TPN0007_201 r
             CROSS APPLY (SELECT ${DEPT_CASE_RESULT} AS dept) x
-            WHERE CAST(r.I_ACP_DATE AS VARCHAR(8)) = @D_YMD
+            WHERE r.I_ACP_DATE = @D_YMD
               AND r.I_IND_DEST_CD IS NOT NULL
-              AND LTRIM(RTRIM(r.I_IND_DEST_CD)) <> ''
+              AND r.I_IND_DEST_CD IS NOT NULL AND r.I_IND_DEST_CD <> ''
               AND x.dept IS NOT NULL
             GROUP BY r.I_IND_DEST_CD, x.dept
           )
