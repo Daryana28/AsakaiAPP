@@ -3,68 +3,53 @@ import { getSqlPool } from "@/lib/mssql";
 
 export const dynamic = "force-dynamic";
 
-const DEPT_CASE_PLAN = `
-  CASE
-    WHEN LEFT(SETSUBICD, 2) IN ('12','16','22') THEN 'INJECTION'
-    WHEN LEFT(SETSUBICD, 2) IN ('13','14','15','23','24','25') THEN 'ST'
-    WHEN LEFT(SETSUBICD, 2) IN ('11','21') THEN 'ASSY'
-    ELSE NULL
-  END
-`;
+function getTodayYmdJakarta() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
 
-const DEPT_CASE_RESULT = `
-  CASE
-    WHEN LEFT(I_IND_DEST_CD, 2) IN ('12','16','22') THEN 'INJECTION'
-    WHEN LEFT(I_IND_DEST_CD, 2) IN ('13','14','15','23','24','25') THEN 'ST'
-    WHEN LEFT(I_IND_DEST_CD, 2) IN ('11','21') THEN 'ASSY'
-    ELSE NULL
-  END
-`;
-
-function toYmd(dt: Date) {
-  return (
-    dt.getFullYear().toString() +
-    String(dt.getMonth() + 1).padStart(2, "0") +
-    String(dt.getDate()).padStart(2, "0")
-  );
-}
-
-function getShiftBaseYmd() {
-  const now = new Date();
-  const hour = now.getHours();
-  if (hour < 8) {
-    const y = new Date(now);
-    y.setDate(y.getDate() - 1);
-    return toYmd(y);
-  }
-  return toYmd(now);
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return `${get("year")}${get("month")}${get("day")}`; // YYYYMMDD
 }
 
 function prevYmdFrom(ymd: string) {
-  const y = Number(ymd.slice(0, 4));
-  const m = Number(ymd.slice(4, 6)) - 1;
-  const d = Number(ymd.slice(6, 8));
-  const dt = new Date(y, m, d);
+  const dt = new Date(
+    Number(ymd.slice(0, 4)),
+    Number(ymd.slice(4, 6)) - 1,
+    Number(ymd.slice(6, 8))
+  );
   dt.setDate(dt.getDate() - 1);
-  return toYmd(dt);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${yy}${mm}${dd}`;
 }
 
 /* ✅ MICRO CACHE */
 type CacheItem<T> = { exp: number; value: Promise<T> };
 const CACHE_TTL_MS = 15000;
 const cache = new Map<string, CacheItem<any>>();
-
 function getCached<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const now = Date.now();
   const hit = cache.get(key);
   if (hit && hit.exp > now) return hit.value;
-
   const value = fn().catch((e) => {
     cache.delete(key);
     throw e;
   });
   cache.set(key, { exp: now + CACHE_TTL_MS, value });
   return value;
+}
+
+function deptToPrefixes(dept: string) {
+  const d = dept.toUpperCase();
+  if (d === "INJECTION") return ["12", "16", "22"];
+  if (d === "ST") return ["13", "14", "15", "23", "24", "25"];
+  if (d === "ASSY") return ["11", "21"];
+  return [];
 }
 
 export async function GET(request: Request) {
@@ -83,58 +68,99 @@ export async function GET(request: Request) {
       | "current"
       | "yesterday";
 
-    const baseYmd = getShiftBaseYmd();
-    const yesterdayYmd = prevYmdFrom(baseYmd);
-    const selectedYmd = view === "yesterday" ? yesterdayYmd : baseYmd;
+    const todayYmd = getTodayYmdJakarta();
+    const yesterdayYmd = prevYmdFrom(todayYmd);
+    const selectedYmd = view === "yesterday" ? yesterdayYmd : todayYmd;
 
-    const cacheKey = `lines:${dept}:${view}:${selectedYmd}`;
+    const p2 = deptToPrefixes(dept);
+    if (!p2.length) {
+      return NextResponse.json(
+        { error: `Dept tidak dikenal: ${dept}` },
+        { status: 400 }
+      );
+    }
+
+    const cacheKey = `lines_fast_v2:${dept}:${view}:${selectedYmd}`;
 
     const data = await getCached(cacheKey, async () => {
       const pool = await getSqlPool();
 
-      const result = await pool
-        .request()
-        .input("D_YMD", selectedYmd)
-        .input("DEPT", dept)
-        .query(`
-          SET NOCOUNT ON;
+      // detect tipe kolom biar ga implicit conversion (index kepakai)
+      const meta = await pool.request().query(`
+        SELECT 'TPN0007_201' AS tbl, c.name AS col, t.name AS typ
+        FROM sys.columns c
+        JOIN sys.types t ON c.user_type_id = t.user_type_id
+        WHERE c.object_id = OBJECT_ID('dbo.TPN0007_201') AND c.name = 'I_ACP_DATE'
+        UNION ALL
+        SELECT 'TBL_R_PRODPLAN_MIRROR' AS tbl, c.name AS col, t.name AS typ
+        FROM sys.columns c
+        JOIN sys.types t ON c.user_type_id = t.user_type_id
+        WHERE c.object_id = OBJECT_ID('dbo.TBL_R_PRODPLAN_MIRROR') AND c.name = 'D_YMD';
+      `);
 
-          WITH
-          PlanLine AS (
-            SELECT
-              p.SETSUBICD AS line,
-              x.dept,
-              SUM(CAST(p.QTY AS BIGINT)) AS target
-            FROM dbo.TBL_R_PRODPLAN_MIRROR p
-            CROSS APPLY (SELECT ${DEPT_CASE_PLAN} AS dept) x
-            WHERE p.D_YMD = @D_YMD
-              AND x.dept IS NOT NULL
-            GROUP BY p.SETSUBICD, x.dept
-          ),
-          ResultLine AS (
-            SELECT
-              r.I_IND_DEST_CD AS line,
-              x.dept,
-              SUM(CAST(r.I_ACP_QTY AS BIGINT)) AS actual
-            FROM dbo.TPN0007_201 r
-            CROSS APPLY (SELECT ${DEPT_CASE_RESULT} AS dept) x
-            WHERE r.I_ACP_DATE = @D_YMD
-              AND r.I_IND_DEST_CD IS NOT NULL
-              AND r.I_IND_DEST_CD IS NOT NULL AND r.I_IND_DEST_CD <> ''
-              AND x.dept IS NOT NULL
-            GROUP BY r.I_IND_DEST_CD, x.dept
-          )
+      const typMap = new Map<string, string>();
+      for (const r of meta.recordset ?? []) typMap.set(`${r.tbl}.${r.col}`, String(r.typ).toLowerCase());
+
+      const acpType = typMap.get("TPN0007_201.I_ACP_DATE") || "";
+      const dymdType = typMap.get("TBL_R_PRODPLAN_MIRROR.D_YMD") || "";
+
+      const ymdAsInt = Number(selectedYmd);
+
+      const req = pool.request();
+      if (acpType.includes("int")) req.input("ACP_YMD", ymdAsInt);
+      else req.input("ACP_YMD", selectedYmd);
+
+      if (dymdType.includes("int")) req.input("PLAN_YMD", ymdAsInt);
+      else req.input("PLAN_YMD", selectedYmd);
+
+      // prefixes
+      req.input("P0", p2[0]);
+      req.input("P1", p2[1] ?? null);
+      req.input("P2", p2[2] ?? null);
+      req.input("P3", p2[3] ?? null);
+      req.input("P4", p2[4] ?? null);
+      req.input("P5", p2[5] ?? null);
+
+      // ✅ Hindari FULL OUTER JOIN berat
+      // ✅ Hindari LTRIM/RTRIM di kolom untuk filter
+      // ✅ Pakai persisted *_P2 untuk filter dept (index)
+      const result = await req.query(`
+        SET NOCOUNT ON;
+
+        WITH X AS (
+          -- TARGET
           SELECT
-            COALESCE(p.line, r.line) AS line,
-            ISNULL(p.target, 0) AS target,
-            ISNULL(r.actual, 0) AS actual
-          FROM PlanLine p
-          FULL OUTER JOIN ResultLine r
-            ON p.line = r.line AND p.dept = r.dept
-          WHERE COALESCE(p.dept, r.dept) = @DEPT
-          ORDER BY COALESCE(p.line, r.line) ASC
-          OPTION (RECOMPILE);
-        `);
+            line = SETSUBICD,
+            target = SUM(CAST(QTY AS BIGINT)),
+            actual = CAST(0 AS BIGINT)
+          FROM dbo.TBL_R_PRODPLAN_MIRROR WITH (INDEX(IX_PRODPLAN_Date_P2))
+          WHERE D_YMD = @PLAN_YMD
+            AND SETSUBICD_P2 IN (@P0,@P1,@P2,@P3,@P4,@P5)
+            AND SETSUBICD IS NOT NULL AND SETSUBICD <> ''
+          GROUP BY SETSUBICD
+
+          UNION ALL
+
+          -- ACTUAL
+          SELECT
+            line = I_IND_DEST_CD,
+            target = CAST(0 AS BIGINT),
+            actual = SUM(CAST(I_ACP_QTY AS BIGINT))
+          FROM dbo.TPN0007_201 WITH (INDEX(IX_TPN0007_201_Date_P2))
+          WHERE I_ACP_DATE = @ACP_YMD
+            AND I_IND_DEST_CD_P2 IN (@P0,@P1,@P2,@P3,@P4,@P5)
+            AND I_IND_DEST_CD IS NOT NULL AND I_IND_DEST_CD <> ''
+          GROUP BY I_IND_DEST_CD
+        )
+        SELECT
+          line,
+          target = SUM(target),
+          actual = SUM(actual)
+        FROM X
+        GROUP BY line
+        ORDER BY line ASC
+        OPTION (RECOMPILE);
+      `);
 
       return (result.recordset ?? []).map((row: any) => {
         const target = Number(row.target) || 0;

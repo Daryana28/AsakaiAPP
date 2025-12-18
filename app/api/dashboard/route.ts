@@ -1,183 +1,178 @@
-// app/api/dashboard/route.ts
 import { NextResponse } from "next/server";
-import sql from "mssql";
+import { getSqlPool } from "@/lib/mssql";
 
 export const dynamic = "force-dynamic";
 
-const sqlServerConfig: sql.config = {
-  user: process.env.SQLSERVER_USER || "appAsakai",
-  password: process.env.SQLSERVER_PASSWORD || "W3d4ng4ns0l0",
-  server: process.env.SQLSERVER_SERVER || "172.17.100.9",
-  database: process.env.SQLSERVER_DB || "Asakai",
+// YYYYMMDD in Asia/Jakarta
+function getTodayYmdJakarta() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
 
-  // ✅ anti-timeout
-  requestTimeout: 60000,
-  connectionTimeout: 30000,
-  pool: {
-    max: 10,
-    min: 0,
-    idleTimeoutMillis: 30000,
-  },
-
-  options: {
-    encrypt: false,
-    trustServerCertificate: true,
-  },
-};
-
-/* ===============================
-   ✅ CACHED POOL (PENTING)
-   =============================== */
-let _pool: sql.ConnectionPool | null = null;
-let _poolPromise: Promise<sql.ConnectionPool> | null = null;
-
-async function getPool() {
-  if (_pool) return _pool;
-
-  if (!_poolPromise) {
-    _poolPromise = sql.connect(sqlServerConfig).then((p) => {
-      _pool = p;
-
-      // kalau koneksi putus/error, reset biar bisa reconnect
-      p.on("error", () => {
-        _pool = null;
-        _poolPromise = null;
-      });
-
-      return p;
-    });
-  }
-
-  return _poolPromise;
-}
-
-/* ===============================
-   MAPPING DEPARTEMEN
-   =============================== */
-
-// PLAN → pakai SETSUBICD
-const DEPT_CASE_PLAN = `
-  CASE
-    WHEN LEFT(SETSUBICD, 2) IN ('12','16','22') THEN 'INJECTION'
-    WHEN LEFT(SETSUBICD, 2) IN ('13','14','15','23','24','25') THEN 'ST'
-    WHEN LEFT(SETSUBICD, 2) IN ('11','21') THEN 'ASSY'
-    ELSE NULL
-  END
-`;
-
-// RESULT → pakai I_IND_DEST_CD
-const DEPT_CASE_RESULT = `
-  CASE
-    WHEN LEFT(I_IND_DEST_CD, 2) IN ('12','16','22') THEN 'INJECTION'
-    WHEN LEFT(I_IND_DEST_CD, 2) IN ('13','14','15','23','24','25') THEN 'ST'
-    WHEN LEFT(I_IND_DEST_CD, 2) IN ('11','21') THEN 'ASSY'
-    ELSE NULL
-  END
-`;
-
-/* ===============================
-   SHIFT & BASE DATE (server time)
-   =============================== */
-function toYmd(dt: Date) {
-  return `${dt.getFullYear()}${String(dt.getMonth() + 1).padStart(
-    2,
-    "0"
-  )}${String(dt.getDate()).padStart(2, "0")}`;
-}
-
-function getShiftBaseYmd() {
-  const now = new Date();
-  const hour = now.getHours();
-
-  let shift: 1 | 2;
-  const baseDate = new Date(now);
-
-  if (hour >= 8 && hour < 20) {
-    shift = 1;
-  } else if (hour >= 20) {
-    shift = 2;
-  } else {
-    // 00:00–07:59 dianggap shift 2 tapi base date = kemarin
-    shift = 2;
-    baseDate.setDate(baseDate.getDate() - 1);
-  }
-
-  return { shift, baseYmd: toYmd(baseDate) };
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return `${get("year")}${get("month")}${get("day")}`;
 }
 
 function prevYmdFrom(ymd: string) {
-  const y = Number(ymd.slice(0, 4));
-  const m = Number(ymd.slice(4, 6)) - 1;
-  const d = Number(ymd.slice(6, 8));
-  const dt = new Date(y, m, d);
+  const dt = new Date(
+    Number(ymd.slice(0, 4)),
+    Number(ymd.slice(4, 6)) - 1,
+    Number(ymd.slice(6, 8))
+  );
   dt.setDate(dt.getDate() - 1);
-  return toYmd(dt);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${yy}${mm}${dd}`;
 }
 
-/* ===============================
-   API
-   =============================== */
-export async function GET(req: Request) {
+// micro cache 15s
+type CacheItem<T> = { exp: number; value: Promise<T> };
+const CACHE_TTL_MS = 15000;
+const cache = new Map<string, CacheItem<any>>();
+function getCached<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const now = Date.now();
+  const hit = cache.get(key);
+  if (hit && hit.exp > now) return hit.value;
+  const value = fn().catch((e) => {
+    cache.delete(key);
+    throw e;
+  });
+  cache.set(key, { exp: now + CACHE_TTL_MS, value });
+  return value;
+}
+
+export async function GET(request: Request) {
+  console.log("[DASHBOARD] route version = v2_p2_union_castsafe");
+
   try {
-    const pool = await getPool();
-
-    const { shift, baseYmd } = getShiftBaseYmd();
-    const yesterdayYmd = prevYmdFrom(baseYmd);
-
-    const { searchParams } = new URL(req.url);
+    const { searchParams } = new URL(request.url);
     const view = (searchParams.get("view") || "current").toLowerCase() as
       | "current"
       | "yesterday";
 
+    const baseYmd = getTodayYmdJakarta();
+    const yesterdayYmd = prevYmdFrom(baseYmd);
     const selectedYmd = view === "yesterday" ? yesterdayYmd : baseYmd;
 
-    const result = await pool
-      .request()
-      .input("YMD", sql.VarChar(8), selectedYmd)
-      .query(`
-        WITH
-        PlanDept AS (
-          SELECT
-            ${DEPT_CASE_PLAN} AS dept,
-            SUM(CAST(QTY AS BIGINT)) AS qty_seihan
-          FROM dbo.TBL_R_PRODPLAN_MIRROR
-          WHERE D_YMD = @YMD
-            AND ${DEPT_CASE_PLAN} IS NOT NULL
-          GROUP BY ${DEPT_CASE_PLAN}
-        ),
-        ResultDept AS (
-          SELECT
-            ${DEPT_CASE_RESULT} AS dept,
-            SUM(CAST(I_ACP_QTY AS BIGINT)) AS qty_aktual
-          FROM dbo.TPN0007_201
-          WHERE I_ACP_DATE = @YMD
-            AND I_IND_DEST_CD IS NOT NULL
-            AND LTRIM(RTRIM(I_IND_DEST_CD)) <> ''
-            AND ${DEPT_CASE_RESULT} IS NOT NULL
-          GROUP BY ${DEPT_CASE_RESULT}
-        )
-        SELECT
-          COALESCE(p.dept, r.dept) AS dept,
-          ISNULL(p.qty_seihan, 0)  AS qty_seihan,
-          ISNULL(r.qty_aktual, 0)  AS qty_aktual
-        FROM PlanDept p
-        FULL OUTER JOIN ResultDept r
-          ON p.dept = r.dept
-        ORDER BY dept;
+    const cacheKey = `dashboard:v2:${view}:${selectedYmd}`;
+
+    const payload = await getCached(cacheKey, async () => {
+      const pool = await getSqlPool();
+
+      // 1) detect column types so we bind params correctly (avoid implicit conversion)
+      const meta = await pool.request().query(`
+        SELECT 'TPN0007_201' AS tbl, c.name AS col, t.name AS typ
+        FROM sys.columns c
+        JOIN sys.types t ON c.user_type_id = t.user_type_id
+        WHERE c.object_id = OBJECT_ID('dbo.TPN0007_201') AND c.name = 'I_ACP_DATE'
+        UNION ALL
+        SELECT 'TBL_R_PRODPLAN_MIRROR' AS tbl, c.name AS col, t.name AS typ
+        FROM sys.columns c
+        JOIN sys.types t ON c.user_type_id = t.user_type_id
+        WHERE c.object_id = OBJECT_ID('dbo.TBL_R_PRODPLAN_MIRROR') AND c.name = 'D_YMD';
       `);
 
-    return NextResponse.json({
-      shift,
-      baseYmd,
-      yesterdayYmd,
-      selectedYmd,
-      view,
-      rows: result.recordset ?? [],
+      const typMap = new Map<string, string>();
+      for (const r of meta.recordset ?? []) typMap.set(`${r.tbl}.${r.col}`, String(r.typ));
+
+      const acpType = (typMap.get("TPN0007_201.I_ACP_DATE") || "").toLowerCase();
+      const dymdType = (typMap.get("TBL_R_PRODPLAN_MIRROR.D_YMD") || "").toLowerCase();
+
+      // bind as INT if column is int/bigint, else bind as varchar(8)
+      const ymdAsInt = Number(selectedYmd);
+
+      const req = pool.request();
+
+      if (acpType.includes("int")) req.input("ACP_YMD", ymdAsInt);
+      else req.input("ACP_YMD", selectedYmd);
+
+      if (dymdType.includes("int")) req.input("PLAN_YMD", ymdAsInt);
+      else req.input("PLAN_YMD", selectedYmd);
+
+      // 2) fast aggregation using persisted prefix columns (must exist)
+      const result = await req.query(`
+        SET NOCOUNT ON;
+
+        WITH X AS (
+          -- TARGET
+          SELECT
+            dept =
+              CASE
+                WHEN SETSUBICD_P2 IN ('12','16','22') THEN 'INJECTION'
+                WHEN SETSUBICD_P2 IN ('13','14','15','23','24','25') THEN 'ST'
+                WHEN SETSUBICD_P2 IN ('11','21') THEN 'ASSY'
+                ELSE NULL
+              END,
+            qty_seihan = SUM(CAST(QTY AS BIGINT)),
+            qty_aktual = CAST(0 AS BIGINT)
+          FROM dbo.TBL_R_PRODPLAN_MIRROR
+          WHERE D_YMD = @PLAN_YMD
+          GROUP BY
+            CASE
+              WHEN SETSUBICD_P2 IN ('12','16','22') THEN 'INJECTION'
+              WHEN SETSUBICD_P2 IN ('13','14','15','23','24','25') THEN 'ST'
+              WHEN SETSUBICD_P2 IN ('11','21') THEN 'ASSY'
+              ELSE NULL
+            END
+
+          UNION ALL
+
+          -- ACTUAL
+          SELECT
+            dept =
+              CASE
+                WHEN I_IND_DEST_CD_P2 IN ('12','16','22') THEN 'INJECTION'
+                WHEN I_IND_DEST_CD_P2 IN ('13','14','15','23','24','25') THEN 'ST'
+                WHEN I_IND_DEST_CD_P2 IN ('11','21') THEN 'ASSY'
+                ELSE NULL
+              END,
+            qty_seihan = CAST(0 AS BIGINT),
+            qty_aktual = SUM(CAST(I_ACP_QTY AS BIGINT))
+          FROM dbo.TPN0007_201
+          WHERE I_ACP_DATE = @ACP_YMD
+          GROUP BY
+            CASE
+              WHEN I_IND_DEST_CD_P2 IN ('12','16','22') THEN 'INJECTION'
+              WHEN I_IND_DEST_CD_P2 IN ('13','14','15','23','24','25') THEN 'ST'
+              WHEN I_IND_DEST_CD_P2 IN ('11','21') THEN 'ASSY'
+              ELSE NULL
+            END
+        )
+        SELECT
+          dept,
+          qty_seihan = SUM(qty_seihan),
+          qty_aktual = SUM(qty_aktual)
+        FROM X
+        WHERE dept IS NOT NULL
+        GROUP BY dept
+        OPTION (RECOMPILE);
+      `);
+
+      const rows = (result.recordset ?? []).map((r: any) => ({
+        dept: String(r.dept),
+        qty_seihan: Number(r.qty_seihan || 0),
+        qty_aktual: Number(r.qty_aktual || 0),
+      }));
+
+      return {
+        shift: 0, // dummy, frontend masih baca shiftLabel
+        baseYmd,
+        yesterdayYmd,
+        selectedYmd,
+        view,
+        rows,
+      };
     });
-  } catch (err) {
-    console.error("ERROR /api/dashboard:", err);
+
+    return NextResponse.json(payload);
+  } catch (err: any) {
+    console.error("API Dashboard Error:", err);
     return NextResponse.json(
-      { error: "db-error", detail: String(err) },
+      { error: err.message || "Database Error", detail: String(err) },
       { status: 500 }
     );
   }

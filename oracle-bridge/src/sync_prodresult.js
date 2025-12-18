@@ -4,45 +4,75 @@ require("dotenv").config();
 const oracledb = require("oracledb");
 const sql = require("mssql");
 
+// ================== VALIDASI ENV (WAJIB) ==================
+function must(name) {
+  const v = (process.env[name] || "").trim();
+  if (!v) throw new Error(`ENV ${name} wajib diisi`);
+  return v;
+}
+
 // ================== KONFIG ORACLE ==================
 const oracleConfig = {
-  user: process.env.ORACLE_USER || "APP_READONLY",
-  password: process.env.ORACLE_PASSWORD || "W3d4ng4ns0l0",
-  connectString: process.env.ORACLE_CONNECT || "172.17.100.17:1521/PIKUNI",
+  user: must("ORACLE_USER"),
+  password: must("ORACLE_PASSWORD"),
+  connectString: must("ORACLE_CONNECT"),
 };
 
 // ================== KONFIG SQL SERVER ==============
 const sqlConfig = {
-  user: process.env.SQLSERVER_USER || "appAsakai",
-  password: process.env.SQLSERVER_PASSWORD || "W3d4ng4ns0l0",
-  server: process.env.SQLSERVER_SERVER || "172.17.100.9",
-  database: process.env.SQLSERVER_DB || "Asakai",
+  user: must("SQLSERVER_USER"),
+  password: must("SQLSERVER_PASSWORD"),
+  server: must("SQLSERVER_SERVER"),
+  database: must("SQLSERVER_DB"),
   options: { encrypt: false, trustServerCertificate: true },
+  pool: { max: 10, min: 0, idleTimeoutMillis: 30_000 },
+  requestTimeout: 120_000,
+  connectionTimeout: 30_000,
 };
 
-// Helper tanggal "YYYYMMDD"
-function getTodayYmd() {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${y}${m}${d}`;
+// ================== UTIL TANGGAL (JAKARTA, TANPA SHIFT) ==================
+function getTodayYmdJakarta() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Jakarta",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+
+  const get = (t) => parts.find((p) => p.type === t)?.value ?? "";
+  return `${get("year")}${get("month")}${get("day")}`; // YYYYMMDD
 }
 
+function prevYmdFrom(ymd) {
+  const dt = new Date(
+    Number(ymd.slice(0, 4)),
+    Number(ymd.slice(4, 6)) - 1,
+    Number(ymd.slice(6, 8))
+  );
+  dt.setDate(dt.getDate() - 1);
+  const yy = dt.getFullYear();
+  const mm = String(dt.getMonth() + 1).padStart(2, "0");
+  const dd = String(dt.getDate()).padStart(2, "0");
+  return `${yy}${mm}${dd}`;
+}
+
+// ================== NORMALIZER ==================
 const toStr = (v) => (v === null || v === undefined ? null : String(v));
 const toNum = (v) => {
   if (v === null || v === undefined || v === "") return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 };
+const toDate = (v) => (v ? new Date(v) : null);
 
 /* ==========================================================
- *  1) SYNC RESULT: Oracle PN0007.TPN0007_201 -> SQL dbo.TPN0007_201
+ *  SYNC RESULT: Oracle PN0007.TPN0007_201 -> SQL dbo.TPN0007_201
+ *  - Ambil hanya berdasarkan I_ACP_DATE (hari ini + kemarin)
+ *  - Tidak ada opsi shift. Tetapi I_SHIFT tetap diisi (DB NOT NULL)
  * ==========================================================*/
-async function syncProdresultOnce(oconn, pool, today) {
-  console.log("→ Sync PRODRESULT (TPN0007_201)");
+async function syncProdresultOnce(oconn, pool, d0, d1) {
+  console.log(`→ Sync PRODRESULT | I_ACP_DATE IN (${d0}, ${d1})`);
 
-  // Query Oracle: ambil semua kolom penting sesuai tabel SQL kamu
   const query = `
     SELECT
       I_FAC_CD,
@@ -74,17 +104,17 @@ async function syncProdresultOnce(oconn, pool, today) {
       INSDATE,
       UPDDATE
     FROM PN0007.TPN0007_201
-    WHERE I_ACP_DATE = :today
+    WHERE I_ACP_DATE = :d0 OR I_ACP_DATE = :d1
   `;
 
   const result = await oconn.execute(
     query,
-    { today },
+    { d0, d1 },
     { outFormat: oracledb.OUT_FORMAT_OBJECT }
   );
 
   const rows = result.rows || [];
-  console.log("  Jumlah baris TPN0007_201 (hari ini):", rows.length);
+  console.log("  Jumlah baris Oracle:", rows.length);
   if (!rows.length) return;
 
   const tx = new sql.Transaction(pool);
@@ -92,11 +122,23 @@ async function syncProdresultOnce(oconn, pool, today) {
 
   try {
     for (const r of rows) {
+      // DB SQL Anda NOT NULL untuk I_SHIFT → wajib ada value
+      const shift = toNum(r.I_SHIFT);
+      if (shift == null) {
+        console.warn("  ⚠️ WARN: I_SHIFT NULL, fallback=1", {
+          I_FAC_CD: r.I_FAC_CD,
+          I_ACP_DATE: r.I_ACP_DATE,
+          I_ST_TIME: r.I_ST_TIME,
+          I_ITEM_CD: r.I_ITEM_CD,
+          I_DRW_NO: r.I_DRW_NO,
+        });
+      }
+
       await new sql.Request(tx)
         // ===== keys / identity fields =====
         .input("I_FAC_CD", sql.NVarChar(20), toStr(r.I_FAC_CD))
         .input("I_ACP_DATE", sql.VarChar(8), toStr(r.I_ACP_DATE))
-        .input("I_SHIFT", sql.Int, toNum(r.I_SHIFT))
+        .input("I_SHIFT", sql.Int, shift ?? 1) // ✅ wajib
         .input("I_ST_TIME", sql.VarChar(6), toStr(r.I_ST_TIME))
         .input("I_ITEM_CD", sql.NVarChar(50), toStr(r.I_ITEM_CD))
         .input("I_DRW_NO", sql.NVarChar(50), toStr(r.I_DRW_NO))
@@ -125,11 +167,10 @@ async function syncProdresultOnce(oconn, pool, today) {
         .input("MANCNT", sql.Int, toNum(r.MANCNT))
         .input("COL_PTN", sql.Int, toNum(r.COL_PTN))
 
-        .input("INSDATE", sql.DateTime2, r.INSDATE ? new Date(r.INSDATE) : null)
-        .input("UPDDATE", sql.DateTime2, r.UPDDATE ? new Date(r.UPDDATE) : null)
+        .input("INSDATE", sql.DateTime2, toDate(r.INSDATE))
+        .input("UPDDATE", sql.DateTime2, toDate(r.UPDDATE))
 
         .query(`
-          -- NOTE: PROC adalah keyword, jadi di SQL Server wajib [PROC]
           IF NOT EXISTS (
             SELECT 1
             FROM dbo.TPN0007_201
@@ -198,125 +239,24 @@ async function syncProdresultOnce(oconn, pool, today) {
     }
 
     await tx.commit();
-    console.log("  ✅ TPN0007_201 upsert OK");
+    console.log("  ✅ PRODRESULT sync OK");
   } catch (err) {
     await tx.rollback();
-    console.error("  ❌ ERROR TPN0007_201:", err);
+    console.error("  ❌ PRODRESULT error:", err);
   }
 }
 
-/* ============================================
- *  2) SYNC PLAN / TARGET (TBL_R_PRODPLAN)
- *  (TETAP - jangan diubah)
- * ==========================================*/
-async function syncProdplanOnce(oconn, pool, today) {
-  console.log("→ Sync PRODPLAN (target produksi)");
-
-  const query = `
-    SELECT
-      FACCD,
-      GRPCD,
-      SETSUBICD,
-      ITEMCD,
-      KANBAN,
-      ST,
-      D_YMD,
-      D_YM,
-      D_D,
-      QTY
-    FROM PN0005.TBL_R_PRODPLAN
-    WHERE D_YMD = :today
-  `;
-
-  const result = await oconn.execute(
-    query,
-    { today },
-    { outFormat: oracledb.OUT_FORMAT_OBJECT }
-  );
-
-  const rows = result.rows || [];
-  console.log("  Jumlah baris PRODPLAN (hari ini):", rows.length);
-  if (!rows.length) return;
-
-  const tx = new sql.Transaction(pool);
-  await tx.begin();
-
-  try {
-    for (const r of rows) {
-      const dymd = String(r.D_YMD).replace(/,/g, "");
-      const dym = String(r.D_YM).replace(/,/g, "");
-      const dd = String(r.D_D).replace(/,/g, "");
-
-      await new sql.Request(tx)
-        .input("FACCD", sql.NVarChar(10), r.FACCD)
-        .input("GRPCD", sql.NVarChar(20), r.GRPCD)
-        .input("SETSUBICD", sql.NVarChar(20), r.SETSUBICD)
-        .input("ITEMCD", sql.NVarChar(50), r.ITEMCD)
-        .input("KANBAN", sql.NVarChar(50), r.KANBAN)
-        .input("ST", sql.Decimal(10, 2), r.ST)
-        .input("D_YMD", sql.VarChar(8), dymd)
-        .input("D_YM", sql.VarChar(6), dym)
-        .input("D_D", sql.VarChar(2), dd)
-        .input("QTY", sql.Int, r.QTY)
-        .query(`
-          IF NOT EXISTS (
-            SELECT 1 FROM dbo.TBL_R_PRODPLAN_MIRROR
-            WHERE FACCD     = @FACCD
-              AND SETSUBICD = @SETSUBICD
-              AND ITEMCD    = @ITEMCD
-              AND D_YMD     = @D_YMD
-          )
-          BEGIN
-            INSERT INTO dbo.TBL_R_PRODPLAN_MIRROR
-              (FACCD, GRPCD, SETSUBICD,
-               ITEMCD, KANBAN, ST,
-               D_YMD, D_YM, D_D,
-               QTY,
-               CreatedAt, UpdatedAt)
-            VALUES
-              (@FACCD, @GRPCD, @SETSUBICD,
-               @ITEMCD, @KANBAN, @ST,
-               @D_YMD, @D_YM, @D_D,
-               @QTY,
-               SYSDATETIME(), SYSDATETIME());
-          END
-          ELSE
-          BEGIN
-            UPDATE dbo.TBL_R_PRODPLAN_MIRROR
-            SET GRPCD     = @GRPCD,
-                KANBAN    = @KANBAN,
-                ST        = @ST,
-                D_YM      = @D_YM,
-                D_D       = @D_D,
-                QTY       = @QTY,
-                UpdatedAt = SYSDATETIME()
-            WHERE FACCD     = @FACCD
-              AND SETSUBICD = @SETSUBICD
-              AND ITEMCD    = @ITEMCD
-              AND D_YMD     = @D_YMD;
-          END
-        `);
-    }
-
-    await tx.commit();
-    console.log("  ✅ PRODPLAN mirror OK");
-  } catch (err) {
-    await tx.rollback();
-    console.error("  ❌ ERROR PRODPLAN:", err);
-  }
-}
-
-/* ============================================
- *  LOOP UNTUK PM2 (1 proses untuk 2 tabel)
- * ==========================================*/
+// ================= LOOP UNTUK PM2 =================
 let isRunning = false;
 
 async function syncAll() {
   if (isRunning) return;
   isRunning = true;
 
-  const today = getTodayYmd();
-  console.log(`\n=== SYNC HARI INI (${today}) → TPN0007_201 & PRODPLAN ===`);
+  const today = getTodayYmdJakarta();
+  const yesterday = prevYmdFrom(today);
+
+  console.log(`\n=== SYNC I_ACP_DATE (${today}, ${yesterday}) ===`);
 
   let oconn;
   let pool;
@@ -325,8 +265,7 @@ async function syncAll() {
     oconn = await oracledb.getConnection(oracleConfig);
     pool = await sql.connect(sqlConfig);
 
-    await syncProdresultOnce(oconn, pool, today);
-    await syncProdplanOnce(oconn, pool, today);
+    await syncProdresultOnce(oconn, pool, today, yesterday);
   } catch (err) {
     console.error("❌ ERROR SYNC ALL:", err);
   } finally {

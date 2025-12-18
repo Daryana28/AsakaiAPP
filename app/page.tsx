@@ -17,7 +17,7 @@ type DashboardRow = {
 };
 
 type DashboardResponse = {
-  shift: number;
+  shift: number; // boleh tetap ada, tapi tidak dipakai
   baseYmd: string;
   yesterdayYmd: string;
   selectedYmd: string;
@@ -81,7 +81,11 @@ function HalfGauge({ percent, color }: GaugeProps) {
 
   return (
     <div className="relative flex flex-col items-center pt-1 w-full">
-      <svg className="w-full h-auto max-w-[18rem] md:max-w-[22rem]" viewBox="0 0 200 120" aria-hidden="true">
+      <svg
+        className="w-full h-auto max-w-[18rem] md:max-w-[22rem]"
+        viewBox="0 0 200 120"
+        aria-hidden="true"
+      >
         <path
           d="M 20,100 A 80,80 0 0,1 180,100"
           fill="none"
@@ -157,7 +161,11 @@ function DeptCard({
     gap == null ? "text-gray-700" : gap === 0 ? "text-emerald-600" : "text-red-500";
 
   const gapText =
-    gap == null || gapAbs == null ? "-" : gap < 0 ? `-${formatNumber(gapAbs)}` : formatNumber(gapAbs);
+    gap == null || gapAbs == null
+      ? "-"
+      : gap < 0
+      ? `-${formatNumber(gapAbs)}`
+      : formatNumber(gapAbs);
 
   return (
     <Link href={href} className="block group cursor-pointer h-full">
@@ -255,8 +263,6 @@ export default function Page() {
     return { dept: deptName, qty_seihan: 0, qty_aktual: 0 };
   });
 
-  const shiftLabel = data?.shift === 1 ? "Shift 1 (08:00 - 20:00)" : "Shift 2 (20:00 - 08:00)";
-
   const selectedLabel = view === "current" ? "Current" : "Kemarin";
   const selectedYmd = data?.selectedYmd || "-";
 
@@ -320,40 +326,35 @@ export default function Page() {
       {!isLoading && (
         <>
           <div className="mt-3 flex items-center gap-2">
-      <button
-        onClick={() => setViewAndUrl("current")}
-        className={`px-4 py-2 rounded-xl text-sm font-semibold border transition
-          ${
-            view === "current"
-              ? "bg-[#0E7B4A] hover:bg-[#0E7B4A]/90 text-white border-[#0E7B4A]"
-              : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-          }`}
-      >
-        Current
-      </button>
+            <button
+              onClick={() => setViewAndUrl("current")}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold border transition
+                ${
+                  view === "current"
+                    ? "bg-[#0E7B4A] hover:bg-[#0E7B4A]/90 text-white border-[#0E7B4A]"
+                    : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                }`}
+            >
+              Current
+            </button>
 
-      <button
-        onClick={() => setViewAndUrl("yesterday")}
-        className={`px-4 py-2 rounded-xl text-sm font-semibold border transition
-          ${
-            view === "yesterday"
-              ? "bg-[#0E7B4A] hover:bg-[#0E7B4A]/90 text-white border-[#0E7B4A]"
-              : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
-          }`}
-      >
-        Yesterday
-      </button>
+            <button
+              onClick={() => setViewAndUrl("yesterday")}
+              className={`px-4 py-2 rounded-xl text-sm font-semibold border transition
+                ${
+                  view === "yesterday"
+                    ? "bg-[#0E7B4A] hover:bg-[#0E7B4A]/90 text-white border-[#0E7B4A]"
+                    : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+                }`}
+            >
+              Yesterday
+            </button>
           </div>
 
+          {/* ✅ SHIFT DIHILANGKAN, TINGGAL TANGGAL */}
           <div className="mt-2 text-sm text-slate-600">
             <span className="font-semibold">{selectedLabel}:</span>{" "}
-            {view === "current" ? (
-              <>
-                {shiftLabel} | <span className="font-mono">{selectedYmd}</span>
-              </>
-            ) : (
-              <span className="font-mono">{selectedYmd}</span>
-            )}
+            <span className="font-mono">{selectedYmd}</span>
           </div>
 
           <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-5">
@@ -441,50 +442,48 @@ export default function Page() {
                                   <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
                                   {f.dept || "File"}
                                 </div>
-                               <div className="mt-3 flex items-center gap-2">
-                                {/* OPEN */}
-                                <button
-                                  onClick={() => openIssue(f)}
-                                  className="flex-1 p-2 rounded-md bg-[#0E7B4A]/10 hover:bg-[#0E7B4A]/20 text-[#0E7B4A]
-                                            text-sm flex items-center justify-center gap-2 transition-colors"
-                                  title="Open / View"
-                                >
-                                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
-                                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
-                                      d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                  </svg>
-                                  Buka
-                                </button>
 
-                                {/* DOWNLOAD */}
-                                <a
-                                  href={getFileUrl(f) || "#"}
-                                  download={f.file_name || undefined}
-                                  className="flex-1 p-2 rounded-md bg-[#6C8B7B]/10 hover:bg-[#6C8B7B]/20 text-[#6C8B7B]
-                                            text-sm flex items-center justify-center gap-2 transition-colors"
-                                  title="Download"
-                                >
-                                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
-                                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                                  </svg>
-                                  Unduh
-                                </a>
+                                <div className="mt-3 flex items-center gap-2">
+                                  <button
+                                    onClick={() => openIssue(f)}
+                                    className="flex-1 p-2 rounded-md bg-[#0E7B4A]/10 hover:bg-[#0E7B4A]/20 text-[#0E7B4A]
+                                              text-sm flex items-center justify-center gap-2 transition-colors"
+                                    title="Open / View"
+                                  >
+                                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
+                                        d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
+                                        d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                    </svg>
+                                    Buka
+                                  </button>
 
-                                {/* DELETE */}
-                                <button
-                                  onClick={() => handleDelete(f.id)}
-                                  className="p-2 rounded-md bg-red-50 hover:bg-red-100 text-red-600 transition-colors"
-                                  title="Delete"
-                                >
-                                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
-                                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                  </svg>
-                                </button>
-                              </div>
+                                  <a
+                                    href={getFileUrl(f) || "#"}
+                                    download={f.file_name || undefined}
+                                    className="flex-1 p-2 rounded-md bg-[#6C8B7B]/10 hover:bg-[#6C8B7B]/20 text-[#6C8B7B]
+                                              text-sm flex items-center justify-center gap-2 transition-colors"
+                                    title="Download"
+                                  >
+                                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
+                                        d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                    </svg>
+                                    Unduh
+                                  </a>
+
+                                  <button
+                                    onClick={() => handleDelete(f.id)}
+                                    className="p-2 rounded-md bg-red-50 hover:bg-red-100 text-red-600 transition-colors"
+                                    title="Delete"
+                                  >
+                                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
+                                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                    </svg>
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           );
