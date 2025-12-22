@@ -189,7 +189,7 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
     labels,
     datasets: [
       {
-        label: "Actual Qty",
+        label: "Achieve Qty",
         data: actuals,
         backgroundColor: safeItems.map((i) => {
           const eff = i.efficiency ?? (i.target > 0 ? (i.actual / i.target) * 100 : 0);
@@ -203,6 +203,7 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
     ],
   };
 
+  // ✅ Tooltip: Plan / Achieve / Efficiency% (sesuai gambar 1)
   const chartOptions: ChartOptions<"bar"> = {
     responsive: true,
     maintainAspectRatio: false,
@@ -217,14 +218,18 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
         callbacks: {
           label: (ctx) => {
             const idx = ctx.dataIndex;
-            const target = targets[idx] || 0;
-            const actual = actuals[idx] || 0;
-            const eff = target > 0 ? ((actual / target) * 100).toFixed(1) : "0.0";
-            return (
-              ` Actual: ${actual.toLocaleString("en-US")} ` +
-              `(Target: ${target.toLocaleString("en-US")}, ` +
-              `Eff: ${eff}%) – Klik untuk detail`
-            );
+
+            const plan = Number(targets[idx] || 0);
+            const achieve = Number(actuals[idx] || 0);
+
+            // ✅ efficiency = (achieve/plan)*100
+            const efficiency = plan > 0 ? ((achieve / plan) * 100).toFixed(1) : "0.0";
+
+            return [
+              `Plan: ${plan.toLocaleString("en-US")}`,
+              `Achieve: ${achieve.toLocaleString("en-US")}`,
+              `Efficiency: ${efficiency}%`,
+            ];
           },
         },
       },
@@ -253,13 +258,13 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
     labels: modelLabels,
     datasets: [
       {
-        label: "Target",
+        label: "Plan",
         data: modelTargets,
         backgroundColor: "rgba(59, 130, 246, 0.5)",
         borderRadius: 4,
       },
       {
-        label: "Actual",
+        label: "Achieve",
         data: modelActuals,
         backgroundColor: "rgba(34, 197, 94, 0.7)",
         borderRadius: 4,
@@ -402,13 +407,13 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
               <div className="px-6 py-3 border-b border-slate-300 bg-slate-50">
                 <div className="flex flex-wrap gap-4 text-sm">
                   <div className="text-slate-600">
-                    Total Target (Plan):{" "}
+                    Total Plan:{" "}
                     <span className="font-extrabold text-blue-600">
                       {totals.totalTarget.toLocaleString("en-US")}
                     </span>
                   </div>
                   <div className="text-slate-600">
-                    Total Actual:{" "}
+                    Total Achieve:{" "}
                     <span className="font-extrabold text-green-600">
                       {totals.totalActual.toLocaleString("en-US")}
                     </span>
@@ -428,9 +433,9 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
                   <table className="w-full text-sm text-left">
                     <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
                       <tr>
-                        <th className="px-6 py-3">Kanban</th>
-                        <th className="px-6 py-3 text-right">Target</th>
-                        <th className="px-6 py-3 text-right">Actual</th>
+                        <th className="px-6 py-3">Item</th>
+                        <th className="px-6 py-3 text-right">Plan</th>
+                        <th className="px-6 py-3 text-right">Achieve</th>
                       </tr>
                     </thead>
 
@@ -438,15 +443,19 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
                       {modelData.map((m, idx) => (
                         <tr key={idx} className="hover:bg-slate-50 align-top">
                           <td className="px-6 py-3">
-                            <div className="font-medium text-slate-700">
-                              {displayModel(m)}
-                            </div>
+                            <div className="font-medium text-slate-700">{displayModel(m)}</div>
 
                             {/* shift list ke bawah */}
                             <div className="mt-2 text-xs text-slate-600 space-y-1">
-                              <div>shift 1 = {Number(m.shift1 || 0).toLocaleString("en-US")}</div>
-                              <div>shift 2 = {Number(m.shift2 || 0).toLocaleString("en-US")}</div>
-                              <div>shift 3 = {Number(m.shift3 || 0).toLocaleString("en-US")}</div>
+                              <div>
+                                shift 1 = {Number(m.shift1 || 0).toLocaleString("en-US")}
+                              </div>
+                              <div>
+                                shift 2 = {Number(m.shift2 || 0).toLocaleString("en-US")}
+                              </div>
+                              <div>
+                                shift 3 = {Number(m.shift3 || 0).toLocaleString("en-US")}
+                              </div>
                             </div>
                           </td>
 
