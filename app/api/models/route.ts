@@ -67,7 +67,7 @@ export async function GET(request: Request) {
     const yesterdayYmd = prevYmdFrom(todayYmd);
     const selectedYmd = view === "yesterday" ? yesterdayYmd : todayYmd;
 
-    const cacheKey = `models_fast_v5:${line}:${view}:${selectedYmd}`;
+    const cacheKey = `models_fast_v6:${line}:${view}:${selectedYmd}`;
 
     const rows = await getCached(cacheKey, async () => {
       const pool = await getSqlPool();
@@ -118,7 +118,7 @@ export async function GET(request: Request) {
           GROUP BY KANBAN
         ),
 
-        /* ========== ACTUAL per MODEL (RESULT) + SHIFT BREAKDOWN ========== */
+        /* ========== ACTUAL per MODEL (RESULT) + SHIFT BREAKDOWN + ITEM_DESC ========== */
         ActualAgg AS (
           SELECT
             model = I_DRW_NO,
@@ -126,7 +126,8 @@ export async function GET(request: Request) {
             shift1 = SUM(CASE WHEN I_SHIFT = 31 THEN CAST(I_ACP_QTY AS BIGINT) ELSE 0 END),
             shift2 = SUM(CASE WHEN I_SHIFT = 32 THEN CAST(I_ACP_QTY AS BIGINT) ELSE 0 END),
             shift3 = SUM(CASE WHEN I_SHIFT = 33 THEN CAST(I_ACP_QTY AS BIGINT) ELSE 0 END),
-            setupSec = SUM(CAST(ISNULL(I_SETUP_SEC, 0) AS BIGINT))
+            setupSec = SUM(CAST(ISNULL(I_SETUP_SEC, 0) AS BIGINT)),
+            itemDesc = MAX(NULLIF(LTRIM(RTRIM(CAST(I_ITEM_DESC AS varchar(200)))), ''))
           FROM dbo.TPN0007_201
           WHERE I_ACP_DATE = @ACP_YMD
             AND I_IND_DEST_CD = @LINE
@@ -168,6 +169,7 @@ export async function GET(request: Request) {
           shift2 = CAST(ISNULL(a.shift2, 0) AS BIGINT),
           shift3 = CAST(ISNULL(a.shift3, 0) AS BIGINT),
           setupSec = CAST(ISNULL(a.setupSec, 0) AS BIGINT),
+          itemDesc = a.itemDesc,
           rjtReasonCd = tr.rjtReasonCd
         FROM TargetAgg t
         FULL OUTER JOIN ActualAgg a
@@ -186,6 +188,7 @@ export async function GET(request: Request) {
         shift2: Number(r.shift2) || 0,
         shift3: Number(r.shift3) || 0,
         setupSec: Number(r.setupSec) || 0,
+        itemDesc: r.itemDesc ?? null,
         rjtReasonCd: r.rjtReasonCd ?? null,
       }));
     });
