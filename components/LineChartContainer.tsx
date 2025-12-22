@@ -478,7 +478,7 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
                     ) : (
                       <tr>
                         <td className="px-6 py-3 text-slate-500" colSpan={2}>
-                          Tidak ada data downtime (I_RJT_REASON_CD) untuk line ini.
+                          Tidak ada data downtime untuk line ini.
                         </td>
                       </tr>
                     )}
