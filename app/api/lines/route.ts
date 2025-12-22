@@ -1,3 +1,4 @@
+// app/api/lines/route.ts
 import { NextResponse } from "next/server";
 import { getSqlPool } from "@/lib/mssql";
 
@@ -12,7 +13,7 @@ function getTodayYmdJakarta() {
   }).formatToParts(new Date());
 
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
-  return `${get("year")}${get("month")}${get("day")}`; // YYYYMMDD
+  return `${get("year")}${get("month")}${get("day")}`;
 }
 
 function prevYmdFrom(ymd: string) {
@@ -80,12 +81,11 @@ export async function GET(request: Request) {
       );
     }
 
-    const cacheKey = `lines_fast_v2:${dept}:${view}:${selectedYmd}`;
+    const cacheKey = `lines_fast_v3:${dept}:${view}:${selectedYmd}`;
 
     const data = await getCached(cacheKey, async () => {
       const pool = await getSqlPool();
 
-      // detect tipe kolom biar ga implicit conversion (index kepakai)
       const meta = await pool.request().query(`
         SELECT 'TPN0007_201' AS tbl, c.name AS col, t.name AS typ
         FROM sys.columns c
@@ -99,7 +99,9 @@ export async function GET(request: Request) {
       `);
 
       const typMap = new Map<string, string>();
-      for (const r of meta.recordset ?? []) typMap.set(`${r.tbl}.${r.col}`, String(r.typ).toLowerCase());
+      for (const r of meta.recordset ?? []) {
+        typMap.set(`${r.tbl}.${r.col}`, String(r.typ).toLowerCase());
+      }
 
       const acpType = typMap.get("TPN0007_201.I_ACP_DATE") || "";
       const dymdType = typMap.get("TBL_R_PRODPLAN_MIRROR.D_YMD") || "";
@@ -113,7 +115,6 @@ export async function GET(request: Request) {
       if (dymdType.includes("int")) req.input("PLAN_YMD", ymdAsInt);
       else req.input("PLAN_YMD", selectedYmd);
 
-      // prefixes
       req.input("P0", p2[0]);
       req.input("P1", p2[1] ?? null);
       req.input("P2", p2[2] ?? null);
@@ -121,18 +122,15 @@ export async function GET(request: Request) {
       req.input("P4", p2[4] ?? null);
       req.input("P5", p2[5] ?? null);
 
-      // ✅ Hindari FULL OUTER JOIN berat
-      // ✅ Hindari LTRIM/RTRIM di kolom untuk filter
-      // ✅ Pakai persisted *_P2 untuk filter dept (index)
       const result = await req.query(`
         SET NOCOUNT ON;
 
         WITH X AS (
-          -- TARGET
           SELECT
             line = SETSUBICD,
             target = SUM(CAST(QTY AS BIGINT)),
-            actual = CAST(0 AS BIGINT)
+            actual = CAST(0 AS BIGINT),
+            setupSec = CAST(0 AS BIGINT)
           FROM dbo.TBL_R_PRODPLAN_MIRROR WITH (INDEX(IX_PRODPLAN_Date_P2))
           WHERE D_YMD = @PLAN_YMD
             AND SETSUBICD_P2 IN (@P0,@P1,@P2,@P3,@P4,@P5)
@@ -141,11 +139,11 @@ export async function GET(request: Request) {
 
           UNION ALL
 
-          -- ACTUAL
           SELECT
             line = I_IND_DEST_CD,
             target = CAST(0 AS BIGINT),
-            actual = SUM(CAST(I_ACP_QTY AS BIGINT))
+            actual = SUM(CAST(I_ACP_QTY AS BIGINT)),
+            setupSec = SUM(CAST(ISNULL(I_SETUP_SEC, 0) AS BIGINT))
           FROM dbo.TPN0007_201 WITH (INDEX(IX_TPN0007_201_Date_P2))
           WHERE I_ACP_DATE = @ACP_YMD
             AND I_IND_DEST_CD_P2 IN (@P0,@P1,@P2,@P3,@P4,@P5)
@@ -155,7 +153,8 @@ export async function GET(request: Request) {
         SELECT
           line,
           target = SUM(target),
-          actual = SUM(actual)
+          actual = SUM(actual),
+          setupSec = SUM(setupSec)
         FROM X
         GROUP BY line
         ORDER BY line ASC
@@ -165,13 +164,16 @@ export async function GET(request: Request) {
       return (result.recordset ?? []).map((row: any) => {
         const target = Number(row.target) || 0;
         const actual = Number(row.actual) || 0;
-        const efficiency = target > 0 ? Number(((actual / target) * 100).toFixed(1)) : 0;
+        const setupSec = Number(row.setupSec) || 0;
+        const efficiency =
+          target > 0 ? Number(((actual / target) * 100).toFixed(1)) : 0;
 
         return {
           line: row.line,
           target,
           actual,
           efficiency,
+          setupSec,
           view,
           ymd: selectedYmd,
         };

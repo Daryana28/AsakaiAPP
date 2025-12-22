@@ -1,3 +1,4 @@
+// app/api/models/route.ts
 import { NextResponse } from "next/server";
 import { getSqlPool } from "@/lib/mssql";
 
@@ -66,7 +67,7 @@ export async function GET(request: Request) {
     const yesterdayYmd = prevYmdFrom(todayYmd);
     const selectedYmd = view === "yesterday" ? yesterdayYmd : todayYmd;
 
-    const cacheKey = `models_fast_v2:${line}:${view}:${selectedYmd}`;
+    const cacheKey = `models_fast_v4:${line}:${view}:${selectedYmd}`;
 
     const rows = await getCached(cacheKey, async () => {
       const pool = await getSqlPool();
@@ -85,7 +86,9 @@ export async function GET(request: Request) {
       `);
 
       const typMap = new Map<string, string>();
-      for (const r of meta.recordset ?? []) typMap.set(`${r.tbl}.${r.col}`, String(r.typ).toLowerCase());
+      for (const r of meta.recordset ?? []) {
+        typMap.set(`${r.tbl}.${r.col}`, String(r.typ).toLowerCase());
+      }
 
       const acpType = typMap.get("TPN0007_201.I_ACP_DATE") || "";
       const dymdType = typMap.get("TBL_R_PRODPLAN_MIRROR.D_YMD") || "";
@@ -103,42 +106,79 @@ export async function GET(request: Request) {
       const result = await req.query(`
         SET NOCOUNT ON;
 
-        WITH X AS (
-          -- TARGET
+        /* ========== TARGET per KANBAN (PLAN) ========== */
+        WITH TargetAgg AS (
           SELECT
             model = KANBAN,
-            target = SUM(CAST(QTY AS BIGINT)),
-            actual = CAST(0 AS BIGINT)
+            target = SUM(CAST(QTY AS BIGINT))
           FROM dbo.TBL_R_PRODPLAN_MIRROR
           WHERE D_YMD = @PLAN_YMD
             AND SETSUBICD = @LINE
             AND KANBAN IS NOT NULL AND KANBAN <> ''
           GROUP BY KANBAN
+        ),
 
-          UNION ALL
-
-          -- ACTUAL
+        /* ========== ACTUAL per MODEL (RESULT) ========== */
+        ActualAgg AS (
           SELECT
             model = I_DRW_NO,
-            target = CAST(0 AS BIGINT),
-            actual = SUM(CAST(I_ACP_QTY AS BIGINT))
+            actual = SUM(CAST(I_ACP_QTY AS BIGINT)),
+            setupSec = SUM(CAST(ISNULL(I_SETUP_SEC, 0) AS BIGINT))
           FROM dbo.TPN0007_201
           WHERE I_ACP_DATE = @ACP_YMD
             AND I_IND_DEST_CD = @LINE
             AND I_DRW_NO IS NOT NULL AND I_DRW_NO <> ''
           GROUP BY I_DRW_NO
+        ),
+
+        /* ========== REASON per MODEL: pilih yg dominan berdasarkan total setupSec ========== */
+        ReasonSetupAgg AS (
+          SELECT
+            model = I_DRW_NO,
+            rjtReasonCd = NULLIF(LTRIM(RTRIM(CAST(I_RJT_REASON_CD AS varchar(50)))),''),
+            sumSetupSec = SUM(CAST(ISNULL(I_SETUP_SEC, 0) AS BIGINT)),
+            sumRjtQty   = SUM(CAST(ISNULL(I_RJT_QTY, 0) AS BIGINT)),
+            cntRows     = COUNT_BIG(1)
+          FROM dbo.TPN0007_201
+          WHERE I_ACP_DATE = @ACP_YMD
+            AND I_IND_DEST_CD = @LINE
+            AND I_DRW_NO IS NOT NULL AND I_DRW_NO <> ''
+          GROUP BY I_DRW_NO, NULLIF(LTRIM(RTRIM(CAST(I_RJT_REASON_CD AS varchar(50)))),'')
+        ),
+        TopReason AS (
+          SELECT
+            model,
+            rjtReasonCd,
+            rn = ROW_NUMBER() OVER (
+              PARTITION BY model
+              ORDER BY sumSetupSec DESC, sumRjtQty DESC, cntRows DESC, rjtReasonCd ASC
+            )
+          FROM ReasonSetupAgg
+          WHERE rjtReasonCd IS NOT NULL
         )
+
         SELECT
-          model,
-          target = SUM(target),
-          actual = SUM(actual)
-        FROM X
-        GROUP BY model
+          model = COALESCE(t.model, a.model),
+          target = CAST(ISNULL(t.target, 0) AS BIGINT),
+          actual = CAST(ISNULL(a.actual, 0) AS BIGINT),
+          setupSec = CAST(ISNULL(a.setupSec, 0) AS BIGINT),
+          rjtReasonCd = tr.rjtReasonCd
+        FROM TargetAgg t
+        FULL OUTER JOIN ActualAgg a
+          ON a.model = t.model
+        LEFT JOIN TopReason tr
+          ON tr.model = COALESCE(t.model, a.model) AND tr.rn = 1
         ORDER BY actual DESC, model ASC
         OPTION (RECOMPILE);
       `);
 
-      return result.recordset ?? [];
+      return (result.recordset ?? []).map((r: any) => ({
+        model: r.model,
+        target: Number(r.target) || 0,
+        actual: Number(r.actual) || 0,
+        setupSec: Number(r.setupSec) || 0,
+        rjtReasonCd: r.rjtReasonCd ?? null,
+      }));
     });
 
     return NextResponse.json(rows);
