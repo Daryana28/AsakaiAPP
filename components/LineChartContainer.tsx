@@ -42,6 +42,12 @@ type ModelDetail = {
   model: string;
   target: number;
   actual: number;
+
+  // ✅ sesuai API: shift1/shift2/shift3
+  shift1?: number;
+  shift2?: number;
+  shift3?: number;
+
   setupSec?: number | null;
   rjtReasonCd?: string | null;
   I_SETUP_SEC?: number | null;
@@ -184,7 +190,8 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
         label: "Actual Qty",
         data: actuals,
         backgroundColor: safeItems.map((i) => {
-          const eff = i.efficiency ?? (i.target > 0 ? (i.actual / i.target) * 100 : 0);
+          const eff =
+            i.efficiency ?? (i.target > 0 ? (i.actual / i.target) * 100 : 0);
           if (eff >= 80) return "rgba(34, 197, 94, 0.8)";
           if (eff >= 50) return "rgba(234, 179, 8, 0.8)";
           return "rgba(239, 68, 68, 0.8)";
@@ -201,7 +208,9 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
     onClick: handleBarClick,
     onHover: (event, chartElement) => {
       // @ts-ignore
-      event.native.target.style.cursor = chartElement.length ? "pointer" : "default";
+      event.native.target.style.cursor = chartElement.length
+        ? "pointer"
+        : "default";
     },
     plugins: {
       legend: { display: false },
@@ -259,7 +268,8 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
       legend: { display: true, position: "top" },
       tooltip: {
         callbacks: {
-          label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.raw).toLocaleString("en-US")}`,
+          label: (ctx) =>
+            `${ctx.dataset.label}: ${Number(ctx.raw).toLocaleString("en-US")}`,
         },
       },
     },
@@ -323,7 +333,8 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
               <div
                 className="relative h-full"
                 style={{
-                  minWidth: safeItems.length > 0 ? `${safeItems.length * 60}px` : "100%",
+                  minWidth:
+                    safeItems.length > 0 ? `${safeItems.length * 60}px` : "100%",
                 }}
               >
                 <Bar data={chartData} options={chartOptions} />
@@ -370,7 +381,10 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
                     <div
                       className="relative h-full"
                       style={{
-                        minWidth: modelData.length > 0 ? `${modelData.length * 80}px` : "100%",
+                        minWidth:
+                          modelData.length > 0
+                            ? `${modelData.length * 80}px`
+                            : "100%",
                       }}
                     >
                       <Bar data={modelChartData} options={modelChartOptions} />
@@ -420,23 +434,57 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
                     </thead>
 
                     <tbody className="divide-y divide-slate-100">
-                      {modelData.map((m, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50">
-                          <td className="px-6 py-3 font-medium text-slate-700">{m.model}</td>
-                          <td className="px-6 py-3 text-right text-slate-600">
-                            {m.target.toLocaleString("en-US")}
-                          </td>
-                          <td className="px-6 py-3 text-right font-bold text-slate-800">
-                            {m.actual.toLocaleString("en-US")}
-                          </td>
-                        </tr>
-                      ))}
+                      {modelData.map((m, idx) => {
+                        // ✅ pakai field dari API: shift1/shift2/shift3
+                        const s1 = Number(m.shift1 || 0);
+                        const s2 = Number(m.shift2 || 0);
+                        const s3 = Number(m.shift3 || 0);
+
+                        return (
+                          <tr key={idx} className="hover:bg-slate-50">
+                            <td className="px-6 py-3 font-medium text-slate-700">
+                              {m.model}
+
+                              {/* ✅ SHIFT tampil memanjang ke bawah */}
+                              <div className="mt-2 pl-4 text-xs text-slate-600 font-normal space-y-1">
+                                <div>
+                                  shift 1 ={" "}
+                                  <span className="font-semibold text-slate-800">
+                                    {s1.toLocaleString("en-US")}
+                                  </span>
+                                </div>
+                                <div>
+                                  shift 2 ={" "}
+                                  <span className="font-semibold text-slate-800">
+                                    {s2.toLocaleString("en-US")}
+                                  </span>
+                                </div>
+                                <div>
+                                  shift 3 ={" "}
+                                  <span className="font-semibold text-slate-800">
+                                    {s3.toLocaleString("en-US")}
+                                  </span>
+                                </div>
+                              </div>
+                            </td>
+
+                            <td className="px-6 py-3 text-right text-slate-600">
+                              {m.target.toLocaleString("en-US")}
+                            </td>
+                            <td className="px-6 py-3 text-right font-bold text-slate-800">
+                              {m.actual.toLocaleString("en-US")}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
 
                     {/* ✅ TOTAL row (lebih kontras) */}
                     <tfoot className="bg-blue-50 border-t-2 border-blue-300">
                       <tr>
-                        <td className="px-6 py-3 font-extrabold text-blue-800">TOTAL</td>
+                        <td className="px-6 py-3 font-extrabold text-blue-800">
+                          TOTAL
+                        </td>
                         <td className="px-6 py-3 text-right font-extrabold text-blue-800">
                           {totals.totalTarget.toLocaleString("en-US")}
                         </td>
@@ -469,7 +517,9 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
                     ) : downtimeData.length > 0 ? (
                       downtimeData.map((d, idx) => (
                         <tr key={`${d.code}-${idx}`} className="hover:bg-slate-50">
-                          <td className="px-6 py-3 text-slate-700">{reasonLabel(d.code)}</td>
+                          <td className="px-6 py-3 text-slate-700">
+                            {reasonLabel(d.code)}
+                          </td>
                           <td className="px-6 py-3 text-right font-semibold text-slate-800">
                             {Number(d.setupSec || 0).toLocaleString("en-US")}
                           </td>
@@ -487,7 +537,9 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
                   {!isLoadingDowntime && downtimeData.length > 0 && (
                     <tfoot className="bg-red-50 border-t-2 border-red-300">
                       <tr>
-                        <td className="px-6 py-3 font-extrabold text-red-700">TOTAL</td>
+                        <td className="px-6 py-3 font-extrabold text-red-700">
+                          TOTAL
+                        </td>
                         <td className="px-6 py-3 text-right font-extrabold text-red-700">
                           {totalDowntimeSec.toLocaleString("en-US")}
                         </td>
