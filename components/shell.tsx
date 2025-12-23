@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import ConfirmDialog from "@/components/ConfirmDialog";
 
 /** ---------------------------
  *  Palet & Data Menu
@@ -16,6 +17,7 @@ const GREEN = {
 
 const MENU = [
   { href: "/", label: "Dashboard", icon: "grid" as const, badge: "" },
+  { href: "/downtime", label: "Downtime", icon: "clock" as const, badge: "" },
   { href: "/input", label: "Input User", icon: "calendar" as const, badge: "" },
 ];
 
@@ -36,6 +38,13 @@ function Icon({ name, active = false }: { name: string; active?: boolean }) {
           <rect x="13" y="3" width="8" height="8" rx="2" />
           <rect x="3" y="13" width="8" height="8" rx="2" />
           <rect x="13" y="13" width="8" height="8" rx="2" />
+        </svg>
+      );
+    case "clock":
+      return (
+        <svg width="22" height="22" viewBox="0 0 24 24" stroke={stroke} fill="none" strokeWidth="1.8">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 7v6l4 2" />
         </svg>
       );
     case "calendar":
@@ -149,28 +158,34 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     ].join(" ");
   };
 
-  // ✅ LOGOUT FUNCTION (baru)
-  const handleLogout = async () => {
-    const ok = window.confirm("Yakin ingin logout?");
-    if (!ok) return;
+  // ✅ NEW: menu yang ditampilkan (user hanya lihat /input)
+  const visibleMenu = role === "user" ? MENU.filter((m) => m.href === "/input") : MENU;
 
+  // ✅ LOGOUT MODAL (baru - hanya ini yang ditambah)
+  const [logoutOpen, setLogoutOpen] = useState(false);
+  const [logoutLoading, setLogoutLoading] = useState(false);
+
+  const handleLogoutConfirm = async () => {
+    setLogoutLoading(true);
     try {
       const res = await fetch("/api/auth/logout", { method: "POST" });
+
+      // fallback kalau backend kamu logout via GET redirect
       if (!res.ok) {
-        alert("Gagal logout. Coba lagi.");
+        window.location.href = "/api/auth/logout";
         return;
       }
 
-      // arahkan ke login
       router.replace("/login");
       router.refresh();
-    } catch (e) {
-      alert("Error logout. Coba lagi.");
+    } catch {
+      // fallback kalau network error
+      window.location.href = "/api/auth/logout";
+    } finally {
+      setLogoutLoading(false);
+      setLogoutOpen(false);
     }
   };
-
-  // ✅ NEW: menu yang ditampilkan (user hanya lihat /input)
-  const visibleMenu = role === "user" ? MENU.filter((m) => m.href === "/input") : MENU;
 
   return (
     <div className="min-h-screen bg-[#F5F7F6] text-neutral-900">
@@ -242,13 +257,13 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
           <nav className="px-3 space-y-1 pb-4">
             {GENERAL.map((g) => {
-              // ✅ khusus logout: pakai button supaya cookie kehapus beneran
+              // ✅ khusus logout: pakai button + modal confirm
               if (g.href === "/logout") {
-                const active = pathname === g.href; // (opsional) biasanya false karena kita redirect ke /login
+                const active = pathname === g.href;
                 return (
                   <button
                     key={g.href}
-                    onClick={handleLogout}
+                    onClick={() => setLogoutOpen(true)}
                     className={linkClass(g.href)}
                     style={active ? ringStyle : undefined}
                     title={!open ? g.label : undefined}
@@ -291,6 +306,18 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       <main className={["pt-14 transition-all duration-300", open ? "sm:pl-72" : "sm:pl-20"].join(" ")}>
         <div className="p-4 sm:p-6">{children}</div>
       </main>
+
+      {/* ✅ CONFIRM LOGOUT (baru - hanya ini yang ditambah) */}
+      <ConfirmDialog
+        open={logoutOpen}
+        title="LOGOUT"
+        message="Yakin ingin logout?"
+        cancelText="Batal"
+        confirmText="Ya, Logout"
+        loading={logoutLoading}
+        onCancel={() => setLogoutOpen(false)}
+        onConfirm={handleLogoutConfirm}
+      />
     </div>
   );
 }
