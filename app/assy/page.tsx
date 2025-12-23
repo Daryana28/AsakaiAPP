@@ -1,3 +1,4 @@
+// assy/page.tsx
 "use client";
 
 // Import komponen yang sama

@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     }
 
     // relPath contoh: /uploads/asakai/abc.xlsx
-    const cleaned = relPath.replace(/^\/+/, ""); // hilangkan leading slash
+    const cleaned = relPath.replace(/^\/+/, ""); 
     const absPath = path.join(process.cwd(), "public", cleaned);
     // kalau folder uploads kamu bukan di /public, sesuaikan di sini
 

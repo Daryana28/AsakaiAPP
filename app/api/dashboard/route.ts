@@ -3,7 +3,6 @@ import { getSqlPool } from "@/lib/mssql";
 
 export const dynamic = "force-dynamic";
 
-// YYYYMMDD in Asia/Jakarta
 function getTodayYmdJakarta() {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Jakarta",
@@ -13,7 +12,7 @@ function getTodayYmdJakarta() {
   }).formatToParts(new Date());
 
   const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
-  return `${get("year")}${get("month")}${get("day")}`;
+  return `${get("year")}${get("month")}${get("day")}`; // YYYYMMDD
 }
 
 function prevYmdFrom(ymd: string) {
@@ -29,14 +28,16 @@ function prevYmdFrom(ymd: string) {
   return `${yy}${mm}${dd}`;
 }
 
-// micro cache 15s
+/* ✅ MICRO CACHE */
 type CacheItem<T> = { exp: number; value: Promise<T> };
 const CACHE_TTL_MS = 15000;
 const cache = new Map<string, CacheItem<any>>();
+
 function getCached<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const now = Date.now();
   const hit = cache.get(key);
   if (hit && hit.exp > now) return hit.value;
+
   const value = fn().catch((e) => {
     cache.delete(key);
     throw e;
@@ -46,24 +47,24 @@ function getCached<T>(key: string, fn: () => Promise<T>): Promise<T> {
 }
 
 export async function GET(request: Request) {
-  console.log("[DASHBOARD] route version = v2_p2_union_castsafe");
-
   try {
+    console.log("[DASHBOARD] route version = v2_p2_union_castsafe");
+
     const { searchParams } = new URL(request.url);
     const view = (searchParams.get("view") || "current").toLowerCase() as
       | "current"
       | "yesterday";
 
-    const baseYmd = getTodayYmdJakarta();
-    const yesterdayYmd = prevYmdFrom(baseYmd);
-    const selectedYmd = view === "yesterday" ? yesterdayYmd : baseYmd;
+    const todayYmd = getTodayYmdJakarta();
+    const yesterdayYmd = prevYmdFrom(todayYmd);
+    const selectedYmd = view === "yesterday" ? yesterdayYmd : todayYmd;
 
-    const cacheKey = `dashboard:v2:${view}:${selectedYmd}`;
+    const cacheKey = `dashboard_fast_v2:${view}:${selectedYmd}`;
 
     const payload = await getCached(cacheKey, async () => {
       const pool = await getSqlPool();
 
-      // 1) detect column types so we bind params correctly (avoid implicit conversion)
+      // 🔒 pastikan tipe param match kolom -> index kepakai
       const meta = await pool.request().query(`
         SELECT 'TPN0007_201' AS tbl, c.name AS col, t.name AS typ
         FROM sys.columns c
@@ -77,28 +78,27 @@ export async function GET(request: Request) {
       `);
 
       const typMap = new Map<string, string>();
-      for (const r of meta.recordset ?? []) typMap.set(`${r.tbl}.${r.col}`, String(r.typ));
+      for (const r of meta.recordset ?? []) {
+        typMap.set(`${r.tbl}.${r.col}`, String(r.typ).toLowerCase());
+      }
 
-      const acpType = (typMap.get("TPN0007_201.I_ACP_DATE") || "").toLowerCase();
-      const dymdType = (typMap.get("TBL_R_PRODPLAN_MIRROR.D_YMD") || "").toLowerCase();
-
-      // bind as INT if column is int/bigint, else bind as varchar(8)
+      const acpType = typMap.get("TPN0007_201.I_ACP_DATE") || "";
+      const dymdType = typMap.get("TBL_R_PRODPLAN_MIRROR.D_YMD") || "";
       const ymdAsInt = Number(selectedYmd);
 
       const req = pool.request();
-
       if (acpType.includes("int")) req.input("ACP_YMD", ymdAsInt);
       else req.input("ACP_YMD", selectedYmd);
 
       if (dymdType.includes("int")) req.input("PLAN_YMD", ymdAsInt);
       else req.input("PLAN_YMD", selectedYmd);
 
-      // 2) fast aggregation using persisted prefix columns (must exist)
+      // ✅ Query super ringkas: UNION ALL lalu GROUP BY dept
       const result = await req.query(`
         SET NOCOUNT ON;
 
         WITH X AS (
-          -- TARGET
+          -- TARGET by dept dari PLAN (pakai SETSUBICD_P2)
           SELECT
             dept =
               CASE
@@ -109,8 +109,9 @@ export async function GET(request: Request) {
               END,
             qty_seihan = SUM(CAST(QTY AS BIGINT)),
             qty_aktual = CAST(0 AS BIGINT)
-          FROM dbo.TBL_R_PRODPLAN_MIRROR
+          FROM dbo.TBL_R_PRODPLAN_MIRROR WITH (INDEX(IX_PRODPLAN_Date_P2))
           WHERE D_YMD = @PLAN_YMD
+            AND SETSUBICD_P2 IS NOT NULL
           GROUP BY
             CASE
               WHEN SETSUBICD_P2 IN ('12','16','22') THEN 'INJECTION'
@@ -121,7 +122,7 @@ export async function GET(request: Request) {
 
           UNION ALL
 
-          -- ACTUAL
+          -- ACTUAL by dept dari RESULT (pakai I_IND_DEST_CD_P2)
           SELECT
             dept =
               CASE
@@ -132,8 +133,9 @@ export async function GET(request: Request) {
               END,
             qty_seihan = CAST(0 AS BIGINT),
             qty_aktual = SUM(CAST(I_ACP_QTY AS BIGINT))
-          FROM dbo.TPN0007_201
+          FROM dbo.TPN0007_201 WITH (INDEX(IX_TPN0007_201_Date_P2))
           WHERE I_ACP_DATE = @ACP_YMD
+            AND I_IND_DEST_CD_P2 IS NOT NULL
           GROUP BY
             CASE
               WHEN I_IND_DEST_CD_P2 IN ('12','16','22') THEN 'INJECTION'
@@ -152,19 +154,13 @@ export async function GET(request: Request) {
         OPTION (RECOMPILE);
       `);
 
-      const rows = (result.recordset ?? []).map((r: any) => ({
-        dept: String(r.dept),
-        qty_seihan: Number(r.qty_seihan || 0),
-        qty_aktual: Number(r.qty_aktual || 0),
-      }));
-
       return {
-        shift: 0, // dummy, frontend masih baca shiftLabel
-        baseYmd,
+        shift: 0, 
+        baseYmd: todayYmd,
         yesterdayYmd,
         selectedYmd,
         view,
-        rows,
+        rows: result.recordset ?? [],
       };
     });
 

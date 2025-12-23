@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 /** ---------------------------
  *  Palet & Data Menu
@@ -19,6 +19,7 @@ const MENU = [
   { href: "/input", label: "Input User", icon: "calendar" as const, badge: "" },
 ];
 
+// ❗ tetap ada, tapi kita render logout sebagai BUTTON (bukan Link)
 const GENERAL = [{ href: "/logout", label: "Logout", icon: "logout" as const }];
 
 /** ---------------------------
@@ -94,17 +95,28 @@ function Clock() {
  *  Shell layout (Topbar + Sidebar + Content)
  *  --------------------------*/
 export default function Shell({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+
   // ✅ FIX HYDRATION:
   // Jangan baca localStorage di initializer (SSR vs Client bisa beda)
   // Defaultkan dulu true, lalu sync dari localStorage setelah mount.
   const [open, setOpen] = useState<boolean>(() => {
-  if (typeof window === "undefined") return true; // SSR safe
-  const saved = localStorage.getItem("sidebar-open");
-  return saved === null ? true : saved === "1";
-});
+    if (typeof window === "undefined") return true; // SSR safe
+    const saved = localStorage.getItem("sidebar-open");
+    return saved === null ? true : saved === "1";
+  });
 
+  // ✅ NEW: role state (untuk hide menu)
+  const [role, setRole] = useState<"admin" | "user" | "">("");
 
   const pathname = usePathname();
+
+  // ✅ NEW: baca cookie role di client
+  useEffect(() => {
+    const m = document.cookie.match(/(?:^|;\s*)asakai_role=([^;]+)/);
+    const v = m ? decodeURIComponent(m[1]) : "";
+    setRole(v === "admin" || v === "user" ? v : "");
+  }, []);
 
   // ✅ hanya simpan perubahan
   useEffect(() => {
@@ -137,6 +149,29 @@ export default function Shell({ children }: { children: React.ReactNode }) {
     ].join(" ");
   };
 
+  // ✅ LOGOUT FUNCTION (baru)
+  const handleLogout = async () => {
+    const ok = window.confirm("Yakin ingin logout?");
+    if (!ok) return;
+
+    try {
+      const res = await fetch("/api/auth/logout", { method: "POST" });
+      if (!res.ok) {
+        alert("Gagal logout. Coba lagi.");
+        return;
+      }
+
+      // arahkan ke login
+      router.replace("/login");
+      router.refresh();
+    } catch (e) {
+      alert("Error logout. Coba lagi.");
+    }
+  };
+
+  // ✅ NEW: menu yang ditampilkan (user hanya lihat /input)
+  const visibleMenu = role === "user" ? MENU.filter((m) => m.href === "/input") : MENU;
+
   return (
     <div className="min-h-screen bg-[#F5F7F6] text-neutral-900">
       {/* Topbar */}
@@ -154,11 +189,17 @@ export default function Shell({ children }: { children: React.ReactNode }) {
             </svg>
           </button>
 
-          <div className="hidden sm:block text-sm font-semibold px-3 py-1 rounded-lg" style={{ background: GREEN.soft, color: GREEN.base }}>
+          <div
+            className="hidden sm:block text-sm font-semibold px-3 py-1 rounded-lg"
+            style={{ background: GREEN.soft, color: GREEN.base }}
+          >
             Dashboard of Production Performance
           </div>
 
-          <div className="hidden sm:block text-sm font-semibold px-3 py-1 rounded-lg" style={{ background: GREEN.soft, color: GREEN.base }}>
+          <div
+            className="hidden sm:block text-sm font-semibold px-3 py-1 rounded-lg"
+            style={{ background: GREEN.soft, color: GREEN.base }}
+          >
             <span className="text-red-600 font-bold">PT Indonesia Koito</span>
           </div>
         </div>
@@ -180,7 +221,7 @@ export default function Shell({ children }: { children: React.ReactNode }) {
           <div className="px-4 pt-5 pb-4 text-[11px] tracking-wider font-semibold text-[#8AA197]">{open ? "MENU" : ""}</div>
 
           <nav className="px-3 space-y-1">
-            {MENU.map((m) => {
+            {visibleMenu.map((m) => {
               const active = pathname === m.href;
               return (
                 <Link
@@ -201,6 +242,25 @@ export default function Shell({ children }: { children: React.ReactNode }) {
 
           <nav className="px-3 space-y-1 pb-4">
             {GENERAL.map((g) => {
+              // ✅ khusus logout: pakai button supaya cookie kehapus beneran
+              if (g.href === "/logout") {
+                const active = pathname === g.href; // (opsional) biasanya false karena kita redirect ke /login
+                return (
+                  <button
+                    key={g.href}
+                    onClick={handleLogout}
+                    className={linkClass(g.href)}
+                    style={active ? ringStyle : undefined}
+                    title={!open ? g.label : undefined}
+                    type="button"
+                  >
+                    <Icon name={g.icon} active={active} />
+                    {open && <span className="flex-1 font-medium">{g.label}</span>}
+                  </button>
+                );
+              }
+
+              // default: tetap link untuk item general lain (kalau nanti ditambah)
               const active = pathname === g.href;
               return (
                 <Link
@@ -220,7 +280,12 @@ export default function Shell({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* Mobile overlay */}
-      {open && <div className="fixed inset-0 top-14 bg-black/20 backdrop-blur-[1px] z-20 sm:hidden" onClick={() => setOpen(false)} />}
+      {open && (
+        <div
+          className="fixed inset-0 top-14 bg-black/20 backdrop-blur-[1px] z-20 sm:hidden"
+          onClick={() => setOpen(false)}
+        />
+      )}
 
       {/* Content */}
       <main className={["pt-14 transition-all duration-300", open ? "sm:pl-72" : "sm:pl-20"].join(" ")}>

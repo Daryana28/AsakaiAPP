@@ -99,6 +99,7 @@ const RJT_REASON_MASTER: Record<string, string> = {
   "109": "Maintenance",
   "110": "Dll",
   "111": "6S",
+  "199" : "Trial",
   "201": "MarkFuncNGDOM",
   "202": "MarkFuncNGImport",
   "203": "MarkVisualNGDOM",

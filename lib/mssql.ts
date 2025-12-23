@@ -7,17 +7,10 @@ const config: sql.config = {
   server: process.env.SQLSERVER_SERVER || "localhost",
   port: Number(process.env.SQLSERVER_PORT || 1433),
   database: process.env.SQLSERVER_DB!,
-  options: {
-    encrypt: false,
-    trustServerCertificate: true,
-  },
-  pool: {
-    max: 10,
-    min: 0,
-    idleTimeoutMillis: 30_000,
-  },
+  options: { encrypt: false, trustServerCertificate: true },
+  pool: { max: 10, min: 0, idleTimeoutMillis: 30_000 },
   connectionTimeout: 30_000,
-  requestTimeout: 120_000, 
+  requestTimeout: 120_000,
 };
 
 let poolPromise: Promise<sql.ConnectionPool> | null = null;

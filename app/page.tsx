@@ -373,7 +373,7 @@ export default function Page() {
           {/* ====== ISSUE (tetap) ====== */}
           <div className="mt-10 space-y-4 bg-white rounded-2xl p-6 shadow-sm border border-slate-200">
             <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">ISSUE</h3>
+              <h3 className="text-lg font-semibold">KPI DEPARTEMENT</h3>
             </div>
 
             {issues.length === 0 ? (
