@@ -9,6 +9,8 @@ import {
   CategoryScale,
   LinearScale,
   BarElement,
+  LineElement,
+  PointElement,
   Tooltip,
   Legend,
   ChartOptions,
@@ -17,7 +19,15 @@ import {
 } from "chart.js";
 import { Bar } from "react-chartjs-2";
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
+ChartJS.register(
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  LineElement,
+  PointElement,
+  Tooltip,
+  Legend
+);
 
 const fetcher = (url: string) => fetch(url).then((r) => r.json());
 
@@ -50,7 +60,7 @@ type ModelDetail = {
   setupSec?: number | null;
   rjtReasonCd?: string | null;
 
-  itemDesc?: string | null; // ✅ tambah
+  itemDesc?: string | null;
 
   I_SETUP_SEC?: number | null;
   I_RJT_REASON_CD?: string | null;
@@ -97,9 +107,9 @@ const RJT_REASON_MASTER: Record<string, string> = {
   "107": "Waiting Part",
   "108": "Try",
   "109": "Maintenance",
-  "110": "Dll",
+  "110": "DLL",
   "111": "6S",
-  "199" : "Trial",
+  "199": "Trial",
   "201": "MarkFuncNGDOM",
   "202": "MarkFuncNGImport",
   "203": "MarkVisualNGDOM",
@@ -118,6 +128,48 @@ function reasonLabel(code: any) {
   const c = normalizeCode(code);
   if (!c) return "-";
   return RJT_REASON_MASTER[c] || c;
+}
+
+function calcEffPercent(plan: number, actual: number) {
+  const p = Number(plan || 0);
+  const a = Number(actual || 0);
+  const raw = p > 0 ? (a / p) * 100 : a > 0 ? 100 : 0;
+  return Math.min(100, Math.max(0, raw));
+}
+
+// ✅ Legend custom (tanpa dummy dataset)
+function LegendCustom() {
+  const COLOR_GOOD = "rgba(34, 197, 94, 0.8)";
+  const COLOR_WARN = "rgba(234, 179, 8, 0.8)";
+  const COLOR_BAD = "rgba(239, 68, 68, 0.8)";
+  const PLAN_RED = "rgba(239, 68, 68, 0.95)";
+
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-4 text-[12px] text-slate-600 mb-2">
+      <div className="flex items-center gap-2">
+        <span className="inline-block h-2.5 w-7 rounded-sm" style={{ background: COLOR_GOOD }} />
+        <span>Achieve ≥ 80%</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="inline-block h-2.5 w-7 rounded-sm" style={{ background: COLOR_WARN }} />
+        <span>Achieve 50–79%</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="inline-block h-2.5 w-7 rounded-sm" style={{ background: COLOR_BAD }} />
+        <span>Achieve &lt; 50%</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span
+          className="inline-block h-2.5 w-7 rounded-sm"
+          style={{
+            background: "transparent",
+            border: `2px dashed ${PLAN_RED}`,
+          }}
+        />
+        <span>Plan %</span>
+      </div>
+    </div>
+  );
 }
 
 export default function LineChartContainer({ dept }: LineChartContainerProps) {
@@ -149,9 +201,21 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
 
   const safeItems = Array.isArray(items) ? items : [];
 
-  const labels = safeItems.map((i) => i.line);
-  const targets = safeItems.map((i) => i.target);
-  const actuals = safeItems.map((i) => i.actual);
+  const sortedItems = useMemo(() => {
+    return [...safeItems].sort((a, b) => {
+      const ea = calcEffPercent(Number(a.target || 0), Number(a.actual || 0));
+      const eb = calcEffPercent(Number(b.target || 0), Number(b.actual || 0));
+      return ea - eb;
+    });
+  }, [safeItems]);
+
+  const labels = sortedItems.map((i) => i.line);
+  const targets = sortedItems.map((i) => i.target);
+  const actuals = sortedItems.map((i) => i.actual);
+
+  const effs = sortedItems.map((i) =>
+    Number(calcEffPercent(Number(i.target || 0), Number(i.actual || 0)).toFixed(1))
+  );
 
   const handleBarClick = async (event: ChartEvent, elements: ActiveElement[]) => {
     if (elements.length > 0) {
@@ -186,35 +250,54 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
     }
   };
 
+  const COLOR_GOOD = "rgba(34, 197, 94, 0.8)";
+  const COLOR_WARN = "rgba(234, 179, 8, 0.8)";
+  const COLOR_BAD = "rgba(239, 68, 68, 0.8)";
+
   const chartData = {
     labels,
     datasets: [
       {
-        label: "Achieve Qty",
-        data: actuals,
-        backgroundColor: safeItems.map((i) => {
-          const eff = i.efficiency ?? (i.target > 0 ? (i.actual / i.target) * 100 : 0);
-          if (eff >= 80) return "rgba(34, 197, 94, 0.8)";
-          if (eff >= 50) return "rgba(234, 179, 8, 0.8)";
-          return "rgba(239, 68, 68, 0.8)";
+        type: "bar" as const,
+        label: "Achieve %",
+        data: effs,
+        backgroundColor: sortedItems.map((i) => {
+          const eff = calcEffPercent(Number(i.target || 0), Number(i.actual || 0));
+          if (eff >= 80) return COLOR_GOOD;
+          if (eff >= 50) return COLOR_WARN;
+          return COLOR_BAD;
         }),
         borderRadius: 4,
         hoverBackgroundColor: "rgba(59, 130, 246, 0.9)",
       },
+      {
+        type: "line" as const,
+        label: "Plan %",
+        data: labels.map(() => 100),
+        borderColor: "rgba(239, 68, 68, 0.95)",
+        backgroundColor: "rgba(239, 68, 68, 0.15)",
+        borderWidth: 2,
+        borderDash: [6, 4],
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        tension: 0,
+        fill: false,
+        clip: 0,
+      },
     ],
   };
 
-  // ✅ Tooltip: Plan / Achieve / Efficiency% (sesuai gambar 1)
-  const chartOptions: ChartOptions<"bar"> = {
+  const chartOptions: ChartOptions<"bar" | "line"> = {
     responsive: true,
     maintainAspectRatio: false,
+    layout: { padding: { top: 10 } },
     onClick: handleBarClick,
     onHover: (event, chartElement) => {
       // @ts-ignore
       event.native.target.style.cursor = chartElement.length ? "pointer" : "default";
     },
     plugins: {
-      legend: { display: false },
+      legend: { display: false }, // ✅ matikan legend bawaan (biar ga dicoret & ga butuh dummy)
       tooltip: {
         callbacks: {
           label: (ctx) => {
@@ -223,8 +306,9 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
             const plan = Number(targets[idx] || 0);
             const achieve = Number(actuals[idx] || 0);
 
-            // ✅ efficiency = (achieve/plan)*100
-            const efficiency = plan > 0 ? ((achieve / plan) * 100).toFixed(1) : "0.0";
+            if (ctx.dataset.label === "Plan (100%)" || ctx.dataset.label === "Plan %") return `Plan: 100%`;
+
+            const efficiency = calcEffPercent(plan, achieve).toFixed(1);
 
             return [
               `Plan: ${plan.toLocaleString("en-US")}`,
@@ -238,62 +322,102 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
     scales: {
       y: {
         beginAtZero: true,
-        ticks: { callback: (value) => Number(value).toLocaleString("en-US") },
+        max: 100,
+        ticks: {
+          callback: (value) => `${Number(value).toLocaleString("en-US")}%`,
+        },
       },
       x: { ticks: { autoSkip: false, maxRotation: 90, minRotation: 90 } },
     },
   };
 
-  // ✅ label untuk tabel & chart (model + itemDesc kalau ada)
   const displayModel = (m: ModelDetail) => {
     const desc = String(m.itemDesc ?? "").trim();
     return desc ? `${m.model} (${desc})` : m.model;
   };
 
-  // ✅ GRAFIK PER MODEL (pakai label model + desc)
-  const modelLabels = modelData.map((m) => displayModel(m));
-  const modelTargets = modelData.map((m) => m.target);
-  const modelActuals = modelData.map((m) => m.actual);
+  const modelDataSorted = useMemo(() => {
+    return [...modelData].sort((a, b) => {
+      const ea = calcEffPercent(Number(a.target || 0), Number(a.actual || 0));
+      const eb = calcEffPercent(Number(b.target || 0), Number(b.actual || 0));
+      return ea - eb;
+    });
+  }, [modelData]);
+
+  const modelLabels = modelDataSorted.map((m) => displayModel(m));
+  const modelEffs = modelDataSorted.map((m) =>
+    Number(calcEffPercent(Number(m.target || 0), Number(m.actual || 0)).toFixed(1))
+  );
 
   const modelChartData = {
     labels: modelLabels,
     datasets: [
       {
-        label: "Plan",
-        data: modelTargets,
-        backgroundColor: "rgba(59, 130, 246, 0.5)",
+        type: "bar" as const,
+        label: "Achieve %",
+        data: modelEffs,
+        backgroundColor: modelDataSorted.map((m) => {
+          const eff = calcEffPercent(Number(m.target || 0), Number(m.actual || 0));
+          if (eff >= 80) return COLOR_GOOD;
+          if (eff >= 50) return COLOR_WARN;
+          return COLOR_BAD;
+        }),
         borderRadius: 4,
       },
       {
-        label: "Achieve",
-        data: modelActuals,
-        backgroundColor: "rgba(34, 197, 94, 0.7)",
-        borderRadius: 4,
+        type: "line" as const,
+        label: "Plan %",
+        data: modelLabels.map(() => 100),
+        borderColor: "rgba(239, 68, 68, 0.95)",
+        backgroundColor: "rgba(239, 68, 68, 0.15)",
+        borderWidth: 2,
+        borderDash: [6, 4],
+        pointRadius: 0,
+        pointHoverRadius: 0,
+        tension: 0,
+        fill: false,
+        clip: 0,
       },
     ],
   };
 
-  const modelChartOptions: ChartOptions<"bar"> = {
+  const modelChartOptions: ChartOptions<"bar" | "line"> = {
     responsive: true,
     maintainAspectRatio: false,
+    layout: { padding: { top: 10 } },
     plugins: {
-      legend: { display: true, position: "top" },
+      legend: { display: false }, // ✅ matikan legend bawaan juga
       tooltip: {
         callbacks: {
-          label: (ctx) => `${ctx.dataset.label}: ${Number(ctx.raw).toLocaleString("en-US")}`,
+          label: (ctx) => {
+            const idx = ctx.dataIndex;
+
+            if (ctx.dataset.label === "Plan (100%)" || ctx.dataset.label === "Plan %") return `Plan: 100%`;
+
+            const m = modelDataSorted[idx];
+            const plan = Number(m?.target || 0);
+            const achieve = Number(m?.actual || 0);
+            const efficiency = calcEffPercent(plan, achieve).toFixed(1);
+
+            return [
+              `Plan: ${plan.toLocaleString("en-US")}`,
+              `Achieve: ${achieve.toLocaleString("en-US")}`,
+              `Efficiency: ${efficiency}%`,
+            ];
+          },
         },
       },
     },
     scales: {
       y: {
         beginAtZero: true,
-        ticks: { callback: (value) => Number(value).toLocaleString("en-US") },
+        max: 100,
+        ticks: { callback: (value) => `${Number(value).toLocaleString("en-US")}%` },
       },
       x: { ticks: { autoSkip: false, maxRotation: 60, minRotation: 30 } },
     },
   };
 
-  // ✅ TOTAL PLAN/ACTUAL dari tabel model
   const totals = useMemo(() => {
     let totalTarget = 0;
     let totalActual = 0;
@@ -304,7 +428,6 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
     return { totalTarget, totalActual };
   }, [modelData]);
 
-  // ✅ TOTAL DOWNTIME (SUM semua jenis downtime)
   const totalDowntimeSec = useMemo(() => {
     let sum = 0;
     for (const d of downtimeData) sum += Number(d.setupSec || 0);
@@ -340,11 +463,14 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
           </div>
         ) : safeItems.length > 0 ? (
           <div className="h-full w-full relative">
+            {/* ✅ legend custom */}
+            <LegendCustom />
+
             <div className="h-full w-full overflow-x-auto pb-2">
               <div
                 className="relative h-full"
                 style={{
-                  minWidth: safeItems.length > 0 ? `${safeItems.length * 60}px` : "100%",
+                  minWidth: sortedItems.length > 0 ? `${sortedItems.length * 60}px` : "100%",
                 }}
               >
                 <Bar data={chartData} options={chartOptions} />
@@ -378,7 +504,6 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
               </button>
             </div>
 
-            {/* 1 area scroll */}
             <div className="flex-1 overflow-y-auto">
               {/* GRAFIK PER MODEL */}
               <div className="p-4 border-b border-slate-200 h-64 md:h-72">
@@ -386,12 +511,15 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
                   <div className="h-full flex items-center justify-center text-slate-500 animate-pulse">
                     Sedang mengambil data model...
                   </div>
-                ) : modelData.length > 0 ? (
+                ) : modelDataSorted.length > 0 ? (
                   <div className="h-full w-full overflow-x-auto">
+                    {/* ✅ legend custom juga di modal */}
+                    <LegendCustom />
+
                     <div
                       className="relative h-full"
                       style={{
-                        minWidth: modelData.length > 0 ? `${modelData.length * 80}px` : "100%",
+                        minWidth: modelDataSorted.length > 0 ? `${modelDataSorted.length * 80}px` : "100%",
                       }}
                     >
                       <Bar data={modelChartData} options={modelChartOptions} />
@@ -404,7 +532,7 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
                 )}
               </div>
 
-              {/* ✅ SUMMARY TOTAL (warna dibedakan) */}
+              {/* ✅ SUMMARY TOTAL */}
               <div className="px-6 py-3 border-b border-slate-300 bg-slate-50">
                 <div className="flex flex-wrap gap-4 text-sm">
                   <div className="text-slate-600">
@@ -446,17 +574,10 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
                           <td className="px-6 py-3">
                             <div className="font-medium text-slate-700">{displayModel(m)}</div>
 
-                            {/* shift list ke bawah */}
                             <div className="mt-2 text-xs text-slate-600 space-y-1">
-                              <div>
-                                shift 1 = {Number(m.shift1 || 0).toLocaleString("en-US")}
-                              </div>
-                              <div>
-                                shift 2 = {Number(m.shift2 || 0).toLocaleString("en-US")}
-                              </div>
-                              <div>
-                                shift 3 = {Number(m.shift3 || 0).toLocaleString("en-US")}
-                              </div>
+                              <div>shift 1 = {Number(m.shift1 || 0).toLocaleString("en-US")}</div>
+                              <div>shift 2 = {Number(m.shift2 || 0).toLocaleString("en-US")}</div>
+                              <div>shift 3 = {Number(m.shift3 || 0).toLocaleString("en-US")}</div>
                             </div>
                           </td>
 
@@ -470,7 +591,6 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
                       ))}
                     </tbody>
 
-                    {/* ✅ TOTAL row (lebih kontras) */}
                     <tfoot className="bg-blue-50 border-t-2 border-blue-300">
                       <tr>
                         <td className="px-6 py-3 font-extrabold text-blue-800">TOTAL</td>
@@ -486,7 +606,7 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
                 )}
               </div>
 
-              {/* ✅ DOWNTIME TABLE + TOTAL (lebih kontras) */}
+              {/* ✅ DOWNTIME TABLE + TOTAL */}
               <div className="p-0">
                 <table className="w-full text-sm text-left">
                   <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">

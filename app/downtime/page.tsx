@@ -47,7 +47,7 @@ const RJT_REASON_MASTER: Record<string, string> = {
   "025": "Tdk tercat",
   "050": "Lain-lain",
   "101": "Meeting",
-  // "102": "Rest Time", // bukan downtime
+  "102": "Rest Time", 
   "103": "Change Model",
   "104": "Trouble Mekanik",
   "105": "Falure",
@@ -57,7 +57,6 @@ const RJT_REASON_MASTER: Record<string, string> = {
   "109": "Maintenance",
   "110": "Dll",
   "111": "6S",
-  "199": "Trial",
   "201": "MarkFuncNGDOM",
   "202": "MarkFuncNGImport",
   "203": "MarkVisualNGDOM",
