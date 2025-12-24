@@ -118,7 +118,7 @@ export async function GET(request: Request) {
           GROUP BY KANBAN
         ),
 
-        /* ========== ACTUAL per MODEL (RESULT) + SHIFT BREAKDOWN + ITEM_DESC ========== */
+        /* ========== ACTUAL per MODEL (RESULT) + SHIFT BREAKDOWN + ITEM_DESC + LAST TIME ========== */
         ActualAgg AS (
           SELECT
             model = I_DRW_NO,
@@ -127,7 +127,8 @@ export async function GET(request: Request) {
             shift2 = SUM(CASE WHEN I_SHIFT = 32 THEN CAST(I_ACP_QTY AS BIGINT) ELSE 0 END),
             shift3 = SUM(CASE WHEN I_SHIFT = 33 THEN CAST(I_ACP_QTY AS BIGINT) ELSE 0 END),
             setupSec = SUM(CAST(ISNULL(I_SETUP_SEC, 0) AS BIGINT)),
-            itemDesc = MAX(NULLIF(LTRIM(RTRIM(CAST(I_ITEM_DESC AS varchar(200)))), ''))
+            itemDesc = MAX(NULLIF(LTRIM(RTRIM(CAST(I_ITEM_DESC AS varchar(200)))), '')),
+            lastStTime = MAX(NULLIF(LTRIM(RTRIM(CAST(I_ST_TIME AS varchar(20)))), ''))
           FROM dbo.TPN0007_201
           WHERE I_ACP_DATE = @ACP_YMD
             AND I_IND_DEST_CD = @LINE
@@ -170,7 +171,8 @@ export async function GET(request: Request) {
           shift3 = CAST(ISNULL(a.shift3, 0) AS BIGINT),
           setupSec = CAST(ISNULL(a.setupSec, 0) AS BIGINT),
           itemDesc = a.itemDesc,
-          rjtReasonCd = tr.rjtReasonCd
+          rjtReasonCd = tr.rjtReasonCd,
+          lastStTime = a.lastStTime
         FROM TargetAgg t
         FULL OUTER JOIN ActualAgg a
           ON a.model = t.model
@@ -190,6 +192,7 @@ export async function GET(request: Request) {
         setupSec: Number(r.setupSec) || 0,
         itemDesc: r.itemDesc ?? null,
         rjtReasonCd: r.rjtReasonCd ?? null,
+        lastStTime: r.lastStTime ?? null,
       }));
     });
 

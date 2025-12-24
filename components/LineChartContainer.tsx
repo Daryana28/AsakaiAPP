@@ -64,6 +64,9 @@ type ModelDetail = {
 
   I_SETUP_SEC?: number | null;
   I_RJT_REASON_CD?: string | null;
+
+  // ✅ tambahan dari API: last time masuk per model (MAX I_ST_TIME)
+  lastStTime?: string | null;
 };
 
 type DowntimeRow = {
@@ -137,6 +140,29 @@ function calcEffPercent(plan: number, actual: number) {
   return Math.min(100, Math.max(0, raw));
 }
 
+// ✅ persen per shift dibanding plan per model
+function calcShiftPercent(plan: number, shiftQty: number) {
+  const p = Number(plan || 0);
+  const q = Number(shiftQty || 0);
+  if (p <= 0) return q > 0 ? 100 : 0;
+  const raw = (q / p) * 100;
+  return Math.min(100, Math.max(0, raw));
+}
+
+// ✅ format I_ST_TIME (contoh 80851 -> 08:08:51)
+function formatHHMMSS(v: any) {
+  if (v === null || v === undefined) return "-";
+  const s0 = String(v).trim();
+  if (!s0) return "-";
+  const onlyNum = s0.replace(/\D/g, "");
+  if (!onlyNum) return s0;
+  const s = onlyNum.padStart(6, "0").slice(-6);
+  const hh = s.slice(0, 2);
+  const mm = s.slice(2, 4);
+  const ss = s.slice(4, 6);
+  return `${hh}:${mm}:${ss}`;
+}
+
 // ✅ Legend custom (tanpa dummy dataset)
 function LegendCustom() {
   const COLOR_GOOD = "rgba(34, 197, 94, 0.8)";
@@ -168,6 +194,68 @@ function LegendCustom() {
         />
         <span>Plan %</span>
       </div>
+    </div>
+  );
+}
+
+// ✅ Legend khusus Plan saja (untuk modal detail line)
+function LegendPlanOnly() {
+  const PLAN_RED = "rgba(239, 68, 68, 0.95)";
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-4 text-[12px] text-slate-600 mb-2">
+      <div className="flex items-center gap-2">
+        <span
+          className="inline-block h-2.5 w-7 rounded-sm"
+          style={{
+            background: "transparent",
+            border: `2px dashed ${PLAN_RED}`,
+          }}
+        />
+        <span>Plan %</span>
+      </div>
+    </div>
+  );
+}
+
+// ✅ Legend custom khusus SHIFT (dipakai cuma di chart model)
+function LegendShiftCustom({ dept, hasShift3 }: { dept: string; hasShift3: boolean }) {
+  const SHIFT1 = "rgba(34, 197, 94, 0.75)"; // hijau
+  const SHIFT2 = "rgba(234, 179, 8, 0.75)"; // kuning
+  const SHIFT3 = "rgba(59, 130, 246, 0.75)"; // biru
+
+  const d = String(dept || "").trim().toUpperCase();
+
+  // ✅ ASSY: 2 shift
+  const s1LabelAssy = "Shift 1 (08:00–20:00)";
+  const s2LabelAssy = "Shift 2 (20:00–08:00)";
+
+  // ✅ ST & INJECTION: 3 shift khusus
+  const s3LabelSTINJ = "Shift 3 (00:00–07:10)";
+  const s1LabelSTINJ = "Shift 1 (07:10–15:10)";
+  const s2LabelSTINJ = "Shift 2 (15:10–00:00)";
+
+  const isSTorInj = d === "ST" || d === "INJECTION";
+
+  const s1Label = isSTorInj ? s1LabelSTINJ : s1LabelAssy;
+  const s2Label = isSTorInj ? s2LabelSTINJ : s2LabelAssy;
+  const s3Label = isSTorInj ? s3LabelSTINJ : "Shift 3";
+
+  return (
+    <div className="flex flex-wrap items-center justify-center gap-4 text-[12px] text-slate-600 mb-2">
+      <div className="flex items-center gap-2">
+        <span className="inline-block h-2.5 w-7 rounded-sm" style={{ background: SHIFT1 }} />
+        <span>{s1Label}</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="inline-block h-2.5 w-7 rounded-sm" style={{ background: SHIFT2 }} />
+        <span>{s2Label}</span>
+      </div>
+      {hasShift3 && (
+        <div className="flex items-center gap-2">
+          <span className="inline-block h-2.5 w-7 rounded-sm" style={{ background: SHIFT3 }} />
+          <span>{s3Label}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -297,7 +385,7 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
       event.native.target.style.cursor = chartElement.length ? "pointer" : "default";
     },
     plugins: {
-      legend: { display: false }, // ✅ matikan legend bawaan (biar ga dicoret & ga butuh dummy)
+      legend: { display: false },
       tooltip: {
         callbacks: {
           label: (ctx) => {
@@ -349,21 +437,51 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
     Number(calcEffPercent(Number(m.target || 0), Number(m.actual || 0)).toFixed(1))
   );
 
+  // ✅ khusus ASSY: tidak ada shift 3
+  const hasShift3 = String(dept || "").trim().toUpperCase() !== "ASSY";
+
+  // ✅ BAR SHIFT % (STACKED) untuk grafik model
+  const shift1Perc = modelDataSorted.map((m) =>
+    Number(calcShiftPercent(Number(m.target || 0), Number(m.shift1 || 0)).toFixed(1))
+  );
+  const shift2Perc = modelDataSorted.map((m) =>
+    Number(calcShiftPercent(Number(m.target || 0), Number(m.shift2 || 0)).toFixed(1))
+  );
+  const shift3Perc = modelDataSorted.map((m) =>
+    Number(calcShiftPercent(Number(m.target || 0), Number(m.shift3 || 0)).toFixed(1))
+  );
+
   const modelChartData = {
     labels: modelLabels,
     datasets: [
       {
         type: "bar" as const,
-        label: "Achieve %",
-        data: modelEffs,
-        backgroundColor: modelDataSorted.map((m) => {
-          const eff = calcEffPercent(Number(m.target || 0), Number(m.actual || 0));
-          if (eff >= 80) return COLOR_GOOD;
-          if (eff >= 50) return COLOR_WARN;
-          return COLOR_BAD;
-        }),
+        label: "Shift 1",
+        data: shift1Perc,
+        backgroundColor: "rgba(34, 197, 94, 0.75)",
         borderRadius: 4,
+        stack: "ach",
       },
+      {
+        type: "bar" as const,
+        label: "Shift 2",
+        data: shift2Perc,
+        backgroundColor: "rgba(234, 179, 8, 0.75)",
+        borderRadius: 4,
+        stack: "ach",
+      },
+      ...(hasShift3
+        ? [
+            {
+              type: "bar" as const,
+              label: "Shift 3",
+              data: shift3Perc,
+              backgroundColor: "rgba(59, 130, 246, 0.75)",
+              borderRadius: 4,
+              stack: "ach",
+            },
+          ]
+        : []),
       {
         type: "line" as const,
         label: "Plan %",
@@ -386,24 +504,40 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
     maintainAspectRatio: false,
     layout: { padding: { top: 10 } },
     plugins: {
-      legend: { display: false }, // ✅ matikan legend bawaan juga
+      legend: { display: false },
       tooltip: {
         callbacks: {
           label: (ctx) => {
             const idx = ctx.dataIndex;
 
-            if (ctx.dataset.label === "Plan (100%)" || ctx.dataset.label === "Plan %") return `Plan: 100%`;
-
+            // ✅ kalau hover/click SHIFT: tampilkan cuma output shift itu saja (seperti "Shift 3: 896")
             const m = modelDataSorted[idx];
-            const plan = Number(m?.target || 0);
-            const achieve = Number(m?.actual || 0);
-            const efficiency = calcEffPercent(plan, achieve).toFixed(1);
+            const s1 = Number(m?.shift1 || 0);
+            const s2 = Number(m?.shift2 || 0);
+            const s3 = Number(m?.shift3 || 0);
 
-            return [
-              `Plan: ${plan.toLocaleString("en-US")}`,
-              `Achieve: ${achieve.toLocaleString("en-US")}`,
-              `Efficiency: ${efficiency}%`,
-            ];
+            if (ctx.dataset.label === "Shift 1") return `Shift 1: ${s1.toLocaleString("en-US")}`;
+            if (ctx.dataset.label === "Shift 2") return `Shift 2: ${s2.toLocaleString("en-US")}`;
+            if (ctx.dataset.label === "Shift 3") return `Shift 3: ${s3.toLocaleString("en-US")}`;
+
+            // ✅ detail lengkap dipindah ke saat hover/click "Plan %" (model/kanban info)
+            if (ctx.dataset.label === "Plan (100%)" || ctx.dataset.label === "Plan %") {
+              const plan = Number(m?.target || 0);
+              const achieve = Number(m?.actual || 0);
+              const efficiency = calcEffPercent(plan, achieve).toFixed(1);
+              const last = formatHHMMSS(m?.lastStTime);
+
+              return [
+                `Plan: ${plan.toLocaleString("en-US")}`,
+                `Achieve: ${achieve.toLocaleString("en-US")} (${efficiency}%)`,
+                `Shift 1: ${s1.toLocaleString("en-US")}`,
+                `Shift 2: ${s2.toLocaleString("en-US")}`,
+                ...(hasShift3 ? [`Shift 3: ${s3.toLocaleString("en-US")}`] : []),
+                `Last Update: ${last}`,
+              ];
+            }
+
+            return `${ctx.dataset.label}: ${Number(ctx.raw || 0).toFixed(1)}%`;
           },
         },
       },
@@ -412,9 +546,13 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
       y: {
         beginAtZero: true,
         max: 100,
+        stacked: true,
         ticks: { callback: (value) => `${Number(value).toLocaleString("en-US")}%` },
       },
-      x: { ticks: { autoSkip: false, maxRotation: 60, minRotation: 30 } },
+      x: {
+        stacked: true,
+        ticks: { autoSkip: false, maxRotation: 60, minRotation: 30 },
+      },
     },
   };
 
@@ -463,7 +601,6 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
           </div>
         ) : safeItems.length > 0 ? (
           <div className="h-full w-full relative">
-            {/* ✅ legend custom */}
             <LegendCustom />
 
             <div className="h-full w-full overflow-x-auto pb-2">
@@ -513,8 +650,9 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
                   </div>
                 ) : modelDataSorted.length > 0 ? (
                   <div className="h-full w-full overflow-x-auto">
-                    {/* ✅ legend custom juga di modal */}
-                    <LegendCustom />
+                    {/* ✅ khusus detail line: legend Achieve hilang, tinggal Plan + Shift */}
+                    <LegendPlanOnly />
+                    <LegendShiftCustom dept={dept} hasShift3={hasShift3} />
 
                     <div
                       className="relative h-full"
@@ -569,26 +707,37 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
                     </thead>
 
                     <tbody className="divide-y divide-slate-100">
-                      {modelData.map((m, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50 align-top">
-                          <td className="px-6 py-3">
-                            <div className="font-medium text-slate-700">{displayModel(m)}</div>
+                      {modelData.map((m, idx) => {
+                        const s1 = Number(m.shift1 || 0);
+                        const s2 = Number(m.shift2 || 0);
+                        const s3 = Number(m.shift3 || 0);
 
-                            <div className="mt-2 text-xs text-slate-600 space-y-1">
-                              <div>shift 1 = {Number(m.shift1 || 0).toLocaleString("en-US")}</div>
-                              <div>shift 2 = {Number(m.shift2 || 0).toLocaleString("en-US")}</div>
-                              <div>shift 3 = {Number(m.shift3 || 0).toLocaleString("en-US")}</div>
-                            </div>
-                          </td>
+                        const last = formatHHMMSS(m.lastStTime);
 
-                          <td className="px-6 py-3 text-right text-slate-600">
-                            {m.target.toLocaleString("en-US")}
-                          </td>
-                          <td className="px-6 py-3 text-right font-bold text-slate-800">
-                            {m.actual.toLocaleString("en-US")}
-                          </td>
-                        </tr>
-                      ))}
+                        return (
+                          <tr key={idx} className="hover:bg-slate-50 align-top">
+                            <td className="px-6 py-3">
+                              <div className="font-medium text-slate-700">{displayModel(m)}</div>
+
+                              <div className="mt-2 text-xs text-slate-600 space-y-1">
+                                <div>shift 1 = {s1.toLocaleString("en-US")}</div>
+                                <div>shift 2 = {s2.toLocaleString("en-US")}</div>
+                                {hasShift3 && <div>shift 3 = {s3.toLocaleString("en-US")}</div>}
+                                <div className="pt-1">
+                                  Last update: <span className="font-semibold text-slate-700">{last}</span>
+                                </div>
+                              </div>
+                            </td>
+
+                            <td className="px-6 py-3 text-right text-slate-600">
+                              {m.target.toLocaleString("en-US")}
+                            </td>
+                            <td className="px-6 py-3 text-right font-bold text-slate-800">
+                              {m.actual.toLocaleString("en-US")}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
 
                     <tfoot className="bg-blue-50 border-t-2 border-blue-300">
