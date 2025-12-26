@@ -84,7 +84,7 @@ export default function Page() {
           <div className="text-center mb-8">
           <div
             className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4 shadow-lg"
-            style={{ background: GREEN.gradient }}
+            style={{ background: "#ffffff" }}
           >
             <img
               src="/logo.png"
@@ -96,7 +96,7 @@ export default function Page() {
               DASHBOARD PRODUCTION
             </h1>
             <p className="text-slate-500 text-sm mt-1">
-              Selamat datang kembali
+              Selamat datang 
             </p>
           </div>
 

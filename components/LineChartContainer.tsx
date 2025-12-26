@@ -163,6 +163,13 @@ function formatHHMMSS(v: any) {
   return `${hh}:${mm}:${ss}`;
 }
 
+// ✅ format downtime: "4,722 Sec (78.7 Min)"
+function formatSecWithMin(secAny: any) {
+  const sec = Number(secAny || 0);
+  const min = sec / 60;
+  return `${sec.toLocaleString("en-US")} Sec (${min.toFixed(1).toLocaleString("en-US")} Min)`;
+}
+
 // ✅ Legend custom (tanpa dummy dataset)
 function LegendCustom() {
   const COLOR_GOOD = "rgba(34, 197, 94, 0.8)";
@@ -225,7 +232,7 @@ function LegendShiftCustom({ dept, hasShift3 }: { dept: string; hasShift3: boole
 
   const d = String(dept || "").trim().toUpperCase();
 
-  // ✅ ASSY: 2 shift
+  // ✅ ASSY: 2 shift (Shift 2 include 00:00–07:10)
   const s1LabelAssy = "Shift 1 (08:00–20:00)";
   const s2LabelAssy = "Shift 2 (20:00–08:00)";
 
@@ -437,16 +444,23 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
     Number(calcEffPercent(Number(m.target || 0), Number(m.actual || 0)).toFixed(1))
   );
 
-  // ✅ khusus ASSY: tidak ada shift 3
-  const hasShift3 = String(dept || "").trim().toUpperCase() !== "ASSY";
+  // ✅ khusus ASSY: tidak ada dataset shift 3 (dan shift3 masuk ke shift2)
+  const deptUpper = String(dept || "").trim().toUpperCase();
+  const isSTorInj = deptUpper === "ST" || deptUpper === "INJECTION";
+  const isAssy = deptUpper === "ASSY";
+  const hasShift3 = isSTorInj; // ✅ hanya ST/INJECTION yang punya shift 3 di grafik
 
   // ✅ BAR SHIFT % (STACKED) untuk grafik model
+  // ASSY: shift2_final = shift2 + shift3
   const shift1Perc = modelDataSorted.map((m) =>
     Number(calcShiftPercent(Number(m.target || 0), Number(m.shift1 || 0)).toFixed(1))
   );
-  const shift2Perc = modelDataSorted.map((m) =>
-    Number(calcShiftPercent(Number(m.target || 0), Number(m.shift2 || 0)).toFixed(1))
-  );
+  const shift2Perc = modelDataSorted.map((m) => {
+    const s2 = Number(m.shift2 || 0);
+    const s3 = Number(m.shift3 || 0);
+    const s2Final = isAssy ? s2 + s3 : s2;
+    return Number(calcShiftPercent(Number(m.target || 0), s2Final).toFixed(1));
+  });
   const shift3Perc = modelDataSorted.map((m) =>
     Number(calcShiftPercent(Number(m.target || 0), Number(m.shift3 || 0)).toFixed(1))
   );
@@ -510,17 +524,21 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
           label: (ctx) => {
             const idx = ctx.dataIndex;
 
-            // ✅ kalau hover/click SHIFT: tampilkan cuma output shift itu saja (seperti "Shift 3: 896")
             const m = modelDataSorted[idx];
-            const s1 = Number(m?.shift1 || 0);
-            const s2 = Number(m?.shift2 || 0);
-            const s3 = Number(m?.shift3 || 0);
+            const rawS1 = Number(m?.shift1 || 0);
+            const rawS2 = Number(m?.shift2 || 0);
+            const rawS3 = Number(m?.shift3 || 0);
 
+            const s1 = rawS1;
+            const s2 = isAssy ? rawS2 + rawS3 : rawS2;
+            const s3 = rawS3;
+
+            // ✅ kalau hover/click SHIFT: tampilkan cuma output shift itu saja
             if (ctx.dataset.label === "Shift 1") return `Shift 1: ${s1.toLocaleString("en-US")}`;
             if (ctx.dataset.label === "Shift 2") return `Shift 2: ${s2.toLocaleString("en-US")}`;
             if (ctx.dataset.label === "Shift 3") return `Shift 3: ${s3.toLocaleString("en-US")}`;
 
-            // ✅ detail lengkap dipindah ke saat hover/click "Plan %" (model/kanban info)
+            // ✅ detail lengkap dipindah ke saat hover/click "Plan %"
             if (ctx.dataset.label === "Plan (100%)" || ctx.dataset.label === "Plan %") {
               const plan = Number(m?.target || 0);
               const achieve = Number(m?.actual || 0);
@@ -686,9 +704,9 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
                     </span>
                   </div>
                   <div className="text-slate-600">
-                    Total Downtime (sec):{" "}
+                    Total Downtime:{" "}
                     <span className="font-extrabold text-red-600">
-                      {totalDowntimeSec.toLocaleString("en-US")}
+                      {formatSecWithMin(totalDowntimeSec)}
                     </span>
                   </div>
                 </div>
@@ -708,9 +726,13 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
 
                     <tbody className="divide-y divide-slate-100">
                       {modelData.map((m, idx) => {
-                        const s1 = Number(m.shift1 || 0);
-                        const s2 = Number(m.shift2 || 0);
-                        const s3 = Number(m.shift3 || 0);
+                        const rawS1 = Number(m.shift1 || 0);
+                        const rawS2 = Number(m.shift2 || 0);
+                        const rawS3 = Number(m.shift3 || 0);
+
+                        const s1 = rawS1;
+                        const s2 = isAssy ? rawS2 + rawS3 : rawS2;
+                        const s3 = rawS3;
 
                         const last = formatHHMMSS(m.lastStTime);
 
@@ -761,7 +783,7 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
                   <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
                     <tr>
                       <th className="px-6 py-3">Downtime</th>
-                      <th className="px-6 py-3 text-right">Waktu (sec)</th>
+                      <th className="px-6 py-3 text-right">Waktu</th>
                     </tr>
                   </thead>
 
@@ -777,7 +799,7 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
                         <tr key={`${d.code}-${idx}`} className="hover:bg-slate-50">
                           <td className="px-6 py-3 text-slate-700">{reasonLabel(d.code)}</td>
                           <td className="px-6 py-3 text-right font-semibold text-slate-800">
-                            {Number(d.setupSec || 0).toLocaleString("en-US")}
+                            {formatSecWithMin(d.setupSec)}
                           </td>
                         </tr>
                       ))
@@ -795,7 +817,7 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
                       <tr>
                         <td className="px-6 py-3 font-extrabold text-red-700">TOTAL</td>
                         <td className="px-6 py-3 text-right font-extrabold text-red-700">
-                          {totalDowntimeSec.toLocaleString("en-US")}
+                          {formatSecWithMin(totalDowntimeSec)}
                         </td>
                       </tr>
                     </tfoot>
