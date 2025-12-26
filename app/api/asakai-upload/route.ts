@@ -14,10 +14,23 @@ export async function POST(req: Request) {
     const file = formData.get("file");
     const cover = formData.get("cover");
 
+    // ✅ ambil kpiGroup
+    const kpiGroupRaw = formData.get("kpiGroup");
+    const kpiGroup =
+      typeof kpiGroupRaw === "string" ? kpiGroupRaw.trim() : null;
+
     // Validasi basic
     if (!dept || typeof dept !== "string") {
       return NextResponse.json(
         { ok: false, message: "dept wajib diisi" },
+        { status: 400 }
+      );
+    }
+
+    // ✅ KPI wajib (biar bisa dikelompokkan)
+    if (!kpiGroup) {
+      return NextResponse.json(
+        { ok: false, message: "kpiGroup wajib diisi" },
         { status: 400 }
       );
     }
@@ -70,23 +83,42 @@ export async function POST(req: Request) {
     // --- Insert ke database ---
     const pool = await getSqlPool();
 
-    const result = await pool
+    // ✅ pastikan kolom kpi_group ada (auto create kalau belum)
+    const colCheck = await pool.request().query(`
+      SELECT 1 AS ok
+      FROM sys.columns
+      WHERE object_id = OBJECT_ID('dbo.t_asakai_upload')
+        AND name = 'kpi_group';
+    `);
+    const hasKpiGroupCol = (colCheck.recordset?.length ?? 0) > 0;
+
+    if (!hasKpiGroupCol) {
+      // coba bikin kolom supaya data KPI bisa tersimpan & digroup
+      await pool.request().query(`
+        ALTER TABLE dbo.t_asakai_upload
+        ADD kpi_group NVARCHAR(30) NULL;
+      `);
+    }
+
+    const reqDb = pool
       .request()
       .input("dept", dept)
+      .input("kpi_group", kpiGroup)
       .input("file_name", file.name)
       .input("file_path", mainPublicPath)
       .input("file_size", file.size)
       .input("cover_name", coverName)
       .input("cover_path", coverPublicPath)
-      .input("cover_size", coverSize)
-      .query(`
-        INSERT INTO dbo.t_asakai_upload
-          (dept, file_name, file_path, file_size, cover_name, cover_path, cover_size)
-        VALUES
-          (@dept, @file_name, @file_path, @file_size, @cover_name, @cover_path, @cover_size);
+      .input("cover_size", coverSize);
 
-        SELECT SCOPE_IDENTITY() AS id;
-      `);
+    const result = await reqDb.query(`
+      INSERT INTO dbo.t_asakai_upload
+        (dept, kpi_group, file_name, file_path, file_size, cover_name, cover_path, cover_size)
+      VALUES
+        (@dept, @kpi_group, @file_name, @file_path, @file_size, @cover_name, @cover_path, @cover_size);
+
+      SELECT SCOPE_IDENTITY() AS id;
+    `);
 
     const newId = result.recordset?.[0]?.id ?? null;
 
@@ -95,6 +127,7 @@ export async function POST(req: Request) {
       id: newId,
       fileUrl: mainPublicPath,
       coverUrl: coverPublicPath,
+      kpiGroup,
     });
   } catch (err: any) {
     console.error("API /api/asakai-upload error:", err);

@@ -104,7 +104,7 @@ const RJT_REASON_MASTER: Record<string, string> = {
   "101": "Meeting",
   "102": "Rest Time",
   "103": "Change Model",
-  "104": "Trouble Mekanik",
+  "104": "Trouble Machine",
   "105": "Falure",
   "106": "Setting Produksi",
   "107": "Waiting Part",
@@ -605,7 +605,7 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
         <h1 className="text-2xl font-bold text-slate-800">
           Grafik Per Line: <span className={titleColorClass}>{dept}</span>
           <span className="ml-2 text-sm font-semibold text-slate-500">
-            ({view === "yesterday" ? "Kemarin" : "Current"})
+            ({view === "yesterday" ? "Yesterday" : "Current"})
           </span>
         </h1>
         <div className="w-24" />
@@ -648,7 +648,7 @@ export default function LineChartContainer({ dept }: LineChartContainerProps) {
               <h3 className="text-lg font-bold text-slate-800">
                 Detail Line: <span className="text-blue-600">{selectedLine}</span>
                 <span className="ml-2 text-sm font-semibold text-slate-500">
-                  ({view === "yesterday" ? "Kemarin" : "Current"})
+                  ({view === "yesterday" ? "Yesterday" : "Current"})
                 </span>
               </h3>
               <button

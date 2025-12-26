@@ -20,20 +20,48 @@ export async function GET() {
 
     const pool = await getSqlPool();
 
-    const result = await pool.request().query(`
+    // ✅ NEW: cek apakah kolom kpi_group ada
+    const colCheck = await pool.request().query(`
+      SELECT 1 AS ok
+      FROM sys.columns
+      WHERE object_id = OBJECT_ID('dbo.t_asakai_upload')
+        AND name = 'kpi_group';
+    `);
+    const hasKpiGroupCol = (colCheck.recordset?.length ?? 0) > 0;
+
+    const result = await pool.request().query(
+      hasKpiGroupCol
+        ? `
       SET NOCOUNT ON;
 
       SELECT TOP 8
         id,
         dept,
+        kpi_group,
         file_name,
         file_path,
         cover_name,
         cover_path,
-        uploaded_at
+        uploaded_at AS uploadedAt
       FROM dbo.t_asakai_upload
       ORDER BY uploaded_at DESC;
-    `);
+    `
+        : `
+      SET NOCOUNT ON;
+
+      SELECT TOP 8
+        id,
+        dept,
+        CAST(NULL AS NVARCHAR(30)) AS kpi_group,
+        file_name,
+        file_path,
+        cover_name,
+        cover_path,
+        uploaded_at AS uploadedAt
+      FROM dbo.t_asakai_upload
+      ORDER BY uploaded_at DESC;
+    `
+    );
 
     const rows = result.recordset ?? [];
 

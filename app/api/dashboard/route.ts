@@ -1,3 +1,4 @@
+// app/api/dashboard/route.ts
 import { NextResponse } from "next/server";
 import { getSqlPool } from "@/lib/mssql";
 
@@ -55,11 +56,23 @@ export async function GET(request: Request) {
       | "current"
       | "yesterday";
 
+    // ✅ KPI filter (optional)
+    const kpi = (searchParams.get("kpi") || "").toUpperCase();
+    const kpiNorm =
+      kpi === "MAIN_KPI" ||
+      kpi === "SUB_KPI" ||
+      kpi === "PROCESS_KPI" ||
+      kpi === "BIRA"
+        ? kpi
+        : "";
+
     const todayYmd = getTodayYmdJakarta();
     const yesterdayYmd = prevYmdFrom(todayYmd);
     const selectedYmd = view === "yesterday" ? yesterdayYmd : todayYmd;
 
-    const cacheKey = `dashboard_fast_v2:${view}:${selectedYmd}`;
+    const cacheKey = `dashboard_fast_v2:${view}:${selectedYmd}:kpi=${
+      kpiNorm || "ALL"
+    }`;
 
     const payload = await getCached(cacheKey, async () => {
       const pool = await getSqlPool();
@@ -93,7 +106,7 @@ export async function GET(request: Request) {
       if (dymdType.includes("int")) req.input("PLAN_YMD", ymdAsInt);
       else req.input("PLAN_YMD", selectedYmd);
 
-      // ✅ Query super ringkas: UNION ALL lalu GROUP BY dept
+      // ✅ Query produksi: TIDAK DIUBAH
       const result = await req.query(`
         SET NOCOUNT ON;
 
@@ -108,7 +121,10 @@ export async function GET(request: Request) {
                 ELSE NULL
               END,
             qty_seihan = SUM(CAST(QTY AS BIGINT)),
-            qty_aktual = CAST(0 AS BIGINT)
+            qty_aktual = CAST(0 AS BIGINT),
+
+            -- ✅ NEW: total line stop per dept (detik) -> dari plan tidak ada, isi 0
+            lineStopSec = CAST(0 AS BIGINT)
           FROM dbo.TBL_R_PRODPLAN_MIRROR WITH (INDEX(IX_PRODPLAN_Date_P2))
           WHERE D_YMD = @PLAN_YMD
             AND SETSUBICD_P2 IS NOT NULL
@@ -132,7 +148,10 @@ export async function GET(request: Request) {
                 ELSE NULL
               END,
             qty_seihan = CAST(0 AS BIGINT),
-            qty_aktual = SUM(CAST(I_ACP_QTY AS BIGINT))
+            qty_aktual = SUM(CAST(I_ACP_QTY AS BIGINT)),
+
+            -- ✅ NEW: total downtime (detik) per dept dari I_SETUP_SEC
+            lineStopSec = SUM(CAST(ISNULL(I_SETUP_SEC, 0) AS BIGINT))
           FROM dbo.TPN0007_201 WITH (INDEX(IX_TPN0007_201_Date_P2))
           WHERE I_ACP_DATE = @ACP_YMD
             AND I_IND_DEST_CD_P2 IS NOT NULL
@@ -147,20 +166,93 @@ export async function GET(request: Request) {
         SELECT
           dept,
           qty_seihan = SUM(qty_seihan),
-          qty_aktual = SUM(qty_aktual)
+          qty_aktual = SUM(qty_aktual),
+
+          -- ✅ NEW: total downtime per dept (detik)
+          lineStopSec = SUM(lineStopSec)
         FROM X
         WHERE dept IS NOT NULL
         GROUP BY dept
         OPTION (RECOMPILE);
       `);
 
+      // ✅ NEW: ambil data upload KPI dari t_asakai_upload
+      // (kalau kamu mau filter per dept/kpi di UI, tinggal pakai response ini)
+      const asakaiCol = await pool.request().query(`
+        SELECT 1 AS ok
+        FROM sys.columns
+        WHERE object_id = OBJECT_ID('dbo.t_asakai_upload')
+          AND name = 'kpi_group';
+      `);
+      const hasKpi = (asakaiCol.recordset?.length ?? 0) > 0;
+
+      const asakaiQuery = hasKpi
+        ? `
+          SELECT TOP (200)
+            id,
+            dept,
+            kpi_group,
+            file_name,
+            file_path,
+            file_size,
+            cover_name,
+            cover_path,
+            cover_size
+          FROM dbo.t_asakai_upload
+          ORDER BY id DESC;
+        `
+        : `
+          SELECT TOP (200)
+            id,
+            dept,
+            CAST(NULL AS NVARCHAR(30)) AS kpi_group,
+            file_name,
+            file_path,
+            file_size,
+            cover_name,
+            cover_path,
+            cover_size
+          FROM dbo.t_asakai_upload
+          ORDER BY id DESC;
+        `;
+
+      const asakaiRes = await pool.request().query(asakaiQuery);
+      const asakaiItems = (asakaiRes.recordset ?? []).map((r: any) => ({
+        ...r,
+        kpi_group: (r.kpi_group ?? "").toString(),
+      }));
+
+      // ✅ NEW: group dept -> kpi_group -> items[]
+      const asakaiGrouped: Record<
+        string,
+        Record<string, typeof asakaiItems>
+      > = {};
+
+      for (const item of asakaiItems) {
+        const d = (item.dept ?? "UNKNOWN").toString();
+        const k = (item.kpi_group || "UNSET").toString();
+
+        // kalau dashboard request pakai ?kpi=..., filter di sini
+        if (kpiNorm && k !== kpiNorm) continue;
+
+        if (!asakaiGrouped[d]) asakaiGrouped[d] = {};
+        if (!asakaiGrouped[d][k]) asakaiGrouped[d][k] = [];
+        asakaiGrouped[d][k].push(item);
+      }
+
       return {
-        shift: 0, 
+        shift: 0,
         baseYmd: todayYmd,
         yesterdayYmd,
         selectedYmd,
         view,
+        kpi: kpiNorm || "ALL",
+
         rows: result.recordset ?? [],
+
+        // ✅ NEW: data KPI upload + grouping
+        asakaiItems,
+        asakaiGrouped,
       };
     });
 

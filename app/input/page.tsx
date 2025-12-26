@@ -30,6 +30,7 @@ type Dept =
   | "ASSEMBLY"
   | "QUALITY"
   | "PURCHASING";
+
 const DEPTS: { value: Dept; label: string }[] = [
   { value: "HSE", label: "HSE" },
   { value: "PPC", label: "PPC" },
@@ -46,8 +47,21 @@ const DEPTS: { value: Dept; label: string }[] = [
   { value: "PURCHASING", label: "Purchasing" },
 ];
 
+// ✅ NEW: KPI Group
+type KpiGroup = "MAIN_KPI" | "SUB_KPI" | "PROCESS_KPI" | "BIRA";
+const KPI_GROUPS: { value: KpiGroup; label: string }[] = [
+  { value: "MAIN_KPI", label: "Main KPI" },
+  { value: "SUB_KPI", label: "Sub KPI" },
+  { value: "PROCESS_KPI", label: "Process KPI" },
+  { value: "BIRA", label: "BIRA" },
+];
+
 export default function InputAsakai() {
   const [dept, setDept] = useState<Dept | "">("");
+
+  // ✅ NEW: KPI Group state
+  const [kpiGroup, setKpiGroup] = useState<KpiGroup | "">("");
+
   const [file, setFile] = useState<File | null>(null);
   const [cover, setCover] = useState<File | null>(null);
   const [rows, setRows] = useState<any[]>([]);
@@ -96,6 +110,8 @@ export default function InputAsakai() {
 
   const upload = async () => {
     if (!dept) return setMsg("❌ Pilih departemen dulu.");
+    // ✅ NEW: wajib pilih KPI group
+    if (!kpiGroup) return setMsg("❌ Pilih KPI group dulu.");
     if (!file) return setMsg("❌ Pilih file utama dulu.");
 
     setBusy(true);
@@ -104,6 +120,10 @@ export default function InputAsakai() {
     try {
       const fd = new FormData();
       fd.append("dept", dept);
+
+      // ✅ NEW: kirim KPI group
+      fd.append("kpiGroup", kpiGroup);
+
       fd.append("file", file);
       if (cover) fd.append("cover", cover);
 
@@ -111,10 +131,12 @@ export default function InputAsakai() {
         method: "POST",
         body: fd,
       });
+
       const j = await res.json();
       if (j.ok) {
         setMsg("✅ Berhasil upload.");
         setDept("");
+        setKpiGroup(""); // ✅ NEW: reset
         setFile(null);
         setCover(null);
         setRows([]);
@@ -174,6 +196,29 @@ export default function InputAsakai() {
                 {DEPTS.map((d) => (
                   <option key={d.value} value={d.value}>
                     {d.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {/* ✅ NEW: KPI Group */}
+            <label className="text-sm w-full sm:w-auto">
+              <div className="mb-1 font-medium" style={{ color: GREEN.text }}>
+                KPI Group
+              </div>
+              <select
+                value={kpiGroup}
+                onChange={(e) => setKpiGroup(e.target.value as KpiGroup | "")}
+                className="rounded-lg px-3 py-2 w-full sm:min-w-[220px] bg-white outline-none focus:ring-2"
+                style={{
+                  border: `1px solid ${GREEN.border}`,
+                  boxShadow: `0 0 0 1px ${GREEN.ring} inset`,
+                }}
+              >
+                <option value="">— Pilih KPI Group —</option>
+                {KPI_GROUPS.map((k) => (
+                  <option key={k.value} value={k.value}>
+                    {k.label}
                   </option>
                 ))}
               </select>
@@ -287,7 +332,7 @@ export default function InputAsakai() {
             {/* Tombol kirim */}
             <button
               onClick={upload}
-              disabled={busy || !dept || !file}
+              disabled={busy || !dept || !kpiGroup || !file}
               className="px-5 py-2.5 rounded-xl font-semibold text-white disabled:opacity-60 disabled:cursor-not-allowed transition active:scale-[0.99] w-full sm:w-auto"
               style={{ background: GREEN.base }}
             >
@@ -308,6 +353,21 @@ export default function InputAsakai() {
               >
                 {file.name}
               </span>
+
+              {/* ✅ NEW: tampilkan KPI group */}
+              {kpiGroup && (
+                <>
+                  <span className="font-semibold ml-1">• KPI:</span>
+                  <span
+                    className="px-2 py-0.5 rounded-lg bg-white"
+                    style={ringStyle}
+                  >
+                    {KPI_GROUPS.find((x) => x.value === kpiGroup)?.label ??
+                      kpiGroup}
+                  </span>
+                </>
+              )}
+
               {cover && (
                 <>
                   <span className="font-semibold ml-1">• Cover:</span>
